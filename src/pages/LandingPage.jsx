@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Shield, MessageSquare, Wifi, Lock, Zap, Eye, EyeOff, Settings, HelpCircle } from 'lucide-react'
+import { Shield, MessageSquare, Wifi, Lock, Zap, Eye, EyeOff, Settings, HelpCircle, Moon, Sun } from 'lucide-react'
 import SettingsDashboard from '../components/settings/SettingsDashboard'
 import HelpPanel from '../components/help/HelpPanel'
 
@@ -14,6 +14,15 @@ const LandingPage = () => {
     language: 'en',
     theme: 'dark'
   })
+
+  // Apply theme changes to document
+  useEffect(() => {
+    if (settings.theme === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [settings.theme])
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -104,21 +113,35 @@ const LandingPage = () => {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            onClick={() => setSettings(prev => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }))}
+            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
+            title={`Switch to ${settings.theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+          >
+            {settings.theme === 'dark' ? (
+              <Sun className="w-5 h-5 text-yellow-400" />
+            ) : (
+              <Moon className="w-5 h-5 text-slate-300" />
+            )}
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => setShowHelp(true)}
-            className="p-2 rounded-lg bg-slate-700 dark:bg-slate-700 bg-white hover:bg-slate-600 dark:hover:bg-slate-600 hover:bg-gray-100 transition-colors border border-slate-600 dark:border-slate-600 border-gray-300"
+            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
             title="Help & Guide"
           >
-            <HelpCircle className="w-5 h-5 text-gray-900 dark:text-gray-400" />
+            <HelpCircle className="w-5 h-5 text-gray-400" />
           </motion.button>
           
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowSettings(true)}
-            className="p-2 rounded-lg bg-slate-700 dark:bg-slate-700 bg-white hover:bg-slate-600 dark:hover:bg-slate-600 hover:bg-gray-100 transition-colors border border-slate-600 dark:border-slate-600 border-gray-300"
+            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
             title="Settings"
           >
-            <Settings className="w-5 h-5 text-gray-900 dark:text-gray-400" />
+            <Settings className="w-5 h-5 text-gray-400" />
           </motion.button>
         </div>
 

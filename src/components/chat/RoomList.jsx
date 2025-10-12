@@ -6,9 +6,13 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
   const [rooms, setRooms] = useState([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [selectedRoom, setSelectedRoom] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [joinRoomId, setJoinRoomId] = useState('')
   const [joinPassword, setJoinPassword] = useState('')
+  const [roomPassword, setRoomPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
   const [newRoom, setNewRoom] = useState({
     name: '',
     description: '',
@@ -23,43 +27,59 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
   useEffect(() => {
     if (!socket) return
 
-    // Get rooms
-    socket.emit('rooms:get', ({ success, rooms }) => {
-      if (success) {
-        // In Normal Mode: filter by user membership
-        // In Secure Mode: show all secure rooms (already filtered by backend)
+    // Listen for new rooms (set up immediately)
+    const handleRoomCreated = (room) => {
+      console.log(`[RoomList] Room created event received:`, room.name, 'mode:', room.mode);
+      // Only add if mode matches and user should see it
+      if (room.mode === mode) {
         if (mode === 'normal') {
-          const userStr = localStorage.getItem('user')
-          const user = userStr ? JSON.parse(userStr) : null
-          if (user && user.id) {
-            const userRooms = rooms.filter(room => 
-              room.members && room.members.includes(user.id)
-            )
-            setRooms(userRooms)
-          } else {
-            setRooms(rooms)
-          }
+          // Normal mode: show all rooms (everyone can see room names)
+          setRooms(prev => [...prev, room])
         } else {
-          // Secure mode: show all rooms (backend already filters by mode)
-          setRooms(rooms)
+          // Secure mode: only show rooms you created or joined
+          const sessionUsername = sessionStorage.getItem('username')
+          if (room.creator === sessionUsername) {
+            setRooms(prev => [...prev, room])
+          }
         }
       }
-    })
+    }
 
-    // Listen for new rooms
-    socket.on('room:created', (room) => {
-      setRooms(prev => [...prev, room])
-    })
+    socket.on('room:created', handleRoomCreated)
 
     socket.on('room:removed', ({ roomId }) => {
       setRooms(prev => prev.filter(r => r.id !== roomId))
     })
 
+    const timer = setTimeout(() => {
+      // Get rooms
+      socket.emit('rooms:get', ({ success, rooms }) => {
+        if (success) {
+          console.log(`[RoomList] Received ${rooms.length} rooms for ${mode} mode`);
+          
+          if (mode === 'normal') {
+            // Normal Mode: Show ALL rooms (everyone can see room names)
+            console.log('[RoomList] Normal mode - showing all rooms');
+            setRooms(rooms)
+          } else {
+            // Secure Mode: Only show rooms you created or joined
+            const sessionUsername = sessionStorage.getItem('username')
+            const userRooms = rooms.filter(room => 
+              room.creator === sessionUsername || 
+              (room.members && room.members.includes(sessionUsername))
+            )
+            console.log(`[RoomList] Secure mode - showing ${userRooms.length} rooms (created/joined by you)`);
+            setRooms(userRooms)
+          }
+        }
+      })
+    }, 200)
     return () => {
-      socket.off('room:created')
+      clearTimeout(timer)
+      socket.off('room:created', handleRoomCreated)
       socket.off('room:removed')
     }
-  }, [socket])
+  }, [socket, mode])
 
   const handleCreateRoom = () => {
     if (!newRoom.name.trim()) {
@@ -69,6 +89,17 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
 
     if (newRoom.name.length < 3 || newRoom.name.length > 50) {
       setCreateError('Room name must be 3-50 characters');
+      return;
+    }
+
+    // Password is mandatory in both modes for security
+    if (!newRoom.password.trim()) {
+      setCreateError('Password is required for all rooms');
+      return;
+    }
+
+    if (newRoom.password.length < 4) {
+      setCreateError('Password must be at least 4 characters');
       return;
     }
 
@@ -88,8 +119,14 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
     }
 
     setCreateError('');
+    const roomPassword = newRoom.password; // Store password before clearing
     socket.emit('room:create', newRoom, ({ success, room, error }) => {
       if (success) {
+        // Show Room ID alert in secure mode
+        if (mode === 'secure') {
+          alert(`✅ Room Created!\n\n🔑 Room ID: ${room.id}\n🔒 Password: ${roomPassword}\n\n⚠️ Share these with others to let them join!\n\nRoom ID is required to join in Secure Mode.`);
+        }
+        
         setShowCreateModal(false)
         setNewRoom({
           name: '',
@@ -99,7 +136,8 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
           timeLimit: 24 * 60,
           messageExpiry: 24
         })
-        onRoomSelect(room)
+        // Pass room with password attached for joining
+        onRoomSelect({ ...room, _password: roomPassword })
       } else {
         setCreateError(error || 'Failed to create room');
       }
@@ -112,21 +150,59 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
       return;
     }
 
-    const room = rooms.find(r => r.id === joinRoomId || r.name.toLowerCase() === joinRoomId.toLowerCase());
-    if (!room) {
-      setJoinError('Room not found');
-      return;
+    // In secure mode, try to join by Room ID directly (room may not be in local list)
+    // In normal mode, try to find by name or ID in local list first
+    let roomIdToJoin = joinRoomId.trim();
+    
+    if (mode === 'normal') {
+      const room = rooms.find(r => r.id === joinRoomId || r.name.toLowerCase() === joinRoomId.toLowerCase());
+      if (!room) {
+        setJoinError('Room not found. Make sure the room name is correct.');
+        return;
+      }
+      roomIdToJoin = room.id;
     }
+    // In secure mode, use the provided Room ID directly
 
     setJoinError('');
-    socket.emit('room:join', { roomId: room.id, password: joinPassword }, ({ success, room: joinedRoom, error }) => {
+    const roomPassword = joinPassword; // Store password
+    socket.emit('room:join', { roomId: roomIdToJoin, password: joinPassword }, ({ success, room: joinedRoom, error }) => {
       if (success) {
         setShowJoinModal(false);
         setJoinRoomId('');
         setJoinPassword('');
-        onRoomSelect(joinedRoom);
+        // Add room to local list if not already there
+        setRooms(prev => {
+          const exists = prev.find(r => r.id === joinedRoom.id);
+          if (!exists) {
+            return [...prev, joinedRoom];
+          }
+          return prev;
+        });
+        // Pass room with password attached for re-joining
+        onRoomSelect({ ...joinedRoom, _password: roomPassword });
       } else {
         setJoinError(error || 'Failed to join room');
+      }
+    });
+  }
+
+  const handlePasswordSubmit = () => {
+    if (!roomPassword.trim()) {
+      setPasswordError('Password is required');
+      return;
+    }
+
+    setPasswordError('');
+    socket.emit('room:join', { roomId: selectedRoom.id, password: roomPassword }, ({ success, room: joinedRoom, error }) => {
+      if (success) {
+        setShowPasswordModal(false);
+        setRoomPassword('');
+        setSelectedRoom(null);
+        // Pass room with password attached for re-joining
+        onRoomSelect({ ...joinedRoom, _password: roomPassword });
+      } else {
+        setPasswordError(error || 'Invalid password');
       }
     });
   }
@@ -198,7 +274,13 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                       alert(`This is a ${room.mode === 'secure' ? 'Secure' : 'Normal'} Mode room. You cannot access it from ${mode === 'secure' ? 'Secure' : 'Normal'} Mode.`);
                       return;
                     }
-                    onRoomSelect(room);
+                    // If room has password, show password modal
+                    if (room.password) {
+                      setSelectedRoom(room);
+                      setShowPasswordModal(true);
+                    } else {
+                      onRoomSelect(room);
+                    }
                   }}
                   className={`p-3 rounded-lg transition-colors ${
                     isWrongMode 
@@ -212,6 +294,11 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="font-semibold text-sm">{room.name}</h3>
+                    {mode === 'secure' && (
+                      <p className="text-xs opacity-75 mt-1 font-mono text-purple-300">
+                        ID: {room.id}
+                      </p>
+                    )}
                     {room.description && (
                       <p className="text-xs opacity-75 mt-1 line-clamp-1">
                         {room.description}
@@ -289,15 +376,19 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Password (Optional)
+                    Password {mode === 'secure' ? '*' : '(Optional)'}
                   </label>
                   <input
                     type="password"
                     value={newRoom.password}
                     onChange={(e) => setNewRoom({ ...newRoom, password: e.target.value })}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
-                    placeholder="Leave empty for no password"
+                    placeholder={mode === 'secure' ? 'Required for secure rooms' : 'Leave empty for no password'}
+                    required={mode === 'secure'}
                   />
+                  {mode === 'secure' && (
+                    <p className="text-xs text-orange-400 mt-1">🔒 Password is mandatory in secure mode</p>
+                  )}
                 </div>
 
                 <div>
@@ -314,26 +405,36 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                   <p className="text-xs text-gray-400 mt-1">Room will be deleted after this time</p>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Message Auto-Delete (hours)
-                  </label>
-                  <select
-                    value={newRoom.messageExpiry}
-                    onChange={(e) => setNewRoom({ ...newRoom, messageExpiry: parseInt(e.target.value) })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-primary"
-                  >
-                    <option value={1}>1 hour</option>
-                    <option value={6}>6 hours</option>
-                    <option value={12}>12 hours</option>
-                    <option value={24}>24 hours (Default)</option>
-                    <option value={48}>2 days</option>
-                    <option value={168}>7 days</option>
-                    <option value={720}>30 days</option>
-                    <option value={0}>Never (Keep forever)</option>
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1">Messages older than this will auto-delete</p>
-                </div>
+                {mode === 'normal' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Message Auto-Delete (hours)
+                    </label>
+                    <select
+                      value={newRoom.messageExpiry}
+                      onChange={(e) => setNewRoom({ ...newRoom, messageExpiry: parseInt(e.target.value) })}
+                      className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-primary"
+                    >
+                      <option value={1}>1 hour</option>
+                      <option value={6}>6 hours</option>
+                      <option value={12}>12 hours</option>
+                      <option value={24}>24 hours (Default)</option>
+                      <option value={48}>2 days</option>
+                      <option value={168}>7 days</option>
+                      <option value={720}>30 days</option>
+                      <option value={0}>Never (Keep forever)</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Messages older than this will auto-delete</p>
+                  </div>
+                )}
+
+                {mode === 'secure' && (
+                  <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3">
+                    <p className="text-xs text-orange-300">
+                      🔥 <strong>Secure Mode:</strong> All messages will be automatically deleted when the session ends. No message history is kept.
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3">
                   <input
@@ -396,30 +497,43 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
               )}
 
               <div className="space-y-4">
+                {mode === 'secure' && (
+                  <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3 mb-2">
+                    <p className="text-xs text-purple-300">
+                      🔒 <strong>Secure Mode:</strong> Enter the exact Room ID shared by the room creator. Room names are hidden for privacy.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Room ID or Name *
+                    {mode === 'secure' ? 'Room ID *' : 'Room Name *'}
                   </label>
                   <input
                     type="text"
                     value={joinRoomId}
                     onChange={(e) => setJoinRoomId(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
-                    placeholder="Enter room ID or name"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary font-mono"
+                    placeholder={mode === 'secure' ? 'e.g., abc123-def456-ghi789' : 'Enter room name'}
                   />
+                  {mode === 'secure' && (
+                    <p className="text-xs text-gray-400 mt-1">Ask the room creator for the Room ID</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Password (if required)
+                    Password *
                   </label>
                   <input
                     type="password"
                     value={joinPassword}
                     onChange={(e) => setJoinPassword(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
-                    placeholder="Leave empty if no password"
+                    placeholder="Enter room password"
+                    required
                   />
+                  <p className="text-xs text-gray-400 mt-1">All rooms require a password</p>
                 </div>
               </div>
 
@@ -441,6 +555,88 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Join
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Password Modal for existing rooms */}
+      <AnimatePresence>
+        {showPasswordModal && selectedRoom && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => {
+              setShowPasswordModal(false);
+              setRoomPassword('');
+              setPasswordError('');
+              setSelectedRoom(null);
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700"
+            >
+              <h3 className="text-xl font-bold text-white mb-4">
+                <Lock className="w-5 h-5 inline mr-2" />
+                Enter Room Password
+              </h3>
+
+              <p className="text-sm text-gray-400 mb-4">
+                Room: <span className="text-white font-semibold">{selectedRoom.name}</span>
+              </p>
+
+              {passwordError && (
+                <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 mb-4">
+                  <p className="text-red-500 text-sm">{passwordError}</p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Password *
+                  </label>
+                  <input
+                    type="password"
+                    value={roomPassword}
+                    onChange={(e) => {
+                      setRoomPassword(e.target.value);
+                      setPasswordError('');
+                    }}
+                    onKeyPress={(e) => e.key === 'Enter' && handlePasswordSubmit()}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
+                    placeholder="Enter room password"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setRoomPassword('');
+                    setPasswordError('');
+                    setSelectedRoom(null);
+                  }}
+                  className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePasswordSubmit}
+                  disabled={!roomPassword.trim()}
+                  className="flex-1 bg-primary hover:bg-primary/80 text-white py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Join Room
                 </button>
               </div>
             </motion.div>

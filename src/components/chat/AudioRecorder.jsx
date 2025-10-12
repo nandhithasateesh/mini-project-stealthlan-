@@ -15,6 +15,20 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode }) => {
 
   const startRecording = async () => {
     try {
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Your browser does not support audio recording');
+      }
+
+      // Check if we're on HTTPS or localhost
+      const isSecureContext = window.isSecureContext;
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      if (!isSecureContext && !isLocalhost) {
+        alert('⚠️ Microphone access requires HTTPS when not on localhost.\n\nTo use audio recording:\n1. Access via localhost, OR\n2. Set up HTTPS for your server');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecorderRef.current = new MediaRecorder(stream)
       chunksRef.current = []
@@ -40,7 +54,20 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode }) => {
       }, 1000)
     } catch (error) {
       console.error('Error accessing microphone:', error)
-      alert('Could not access microphone. Please check permissions.')
+      
+      let errorMessage = 'Could not access microphone.\n\n';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += '❌ Permission denied. Please:\n1. Click the 🔒 icon in your browser address bar\n2. Allow microphone access\n3. Refresh the page';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += '❌ No microphone found. Please connect a microphone and try again.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage += '❌ Microphone is already in use by another application.';
+      } else {
+        errorMessage += `❌ ${error.message || 'Unknown error'}`;
+      }
+      
+      alert(errorMessage)
     }
   }
 

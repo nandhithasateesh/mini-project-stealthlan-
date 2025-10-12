@@ -16,10 +16,19 @@ export const config = {
   MAX_LOGIN_ATTEMPTS: parseInt(process.env.MAX_LOGIN_ATTEMPTS) || 5,
   LOCKOUT_DURATION: parseInt(process.env.LOCKOUT_DURATION_MINUTES) * 60 * 1000 || 5 * 60 * 1000, // Convert to milliseconds
 
-  // CORS
+  // CORS - Allow localhost and any IP on local network
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-    : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
+    : (req, callback) => {
+        // Allow localhost and any local network IP (192.168.x.x, 10.x.x.x, etc.)
+        const origin = req.header('Origin');
+        const allowed = !origin || 
+                       origin.includes('localhost') || 
+                       origin.includes('127.0.0.1') ||
+                       /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
+                       /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(origin);
+        callback(null, allowed);
+      },
 
   // Session
   SESSION_EXPIRY: process.env.SESSION_EXPIRY || '24h',

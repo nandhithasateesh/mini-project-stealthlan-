@@ -22,62 +22,18 @@ import {
   validateSessionToken,
   removeSessionToken
 } from '../utils/fileHandler.js';
+import { deleteMessagesForUser, deleteRoom, getRooms } from '../utils/roomManager.js';
 
 const router = express.Router();
 
-// Normal Mode - Register
+// Normal Mode - Register (DISABLED - Use Aadhaar verification instead)
 router.post('/normal/register', registerValidation, validate, async (req, res) => {
-  try {
-    // Sanitize inputs
-    const email = sanitizeInput(req.body.email);
-    const password = req.body.password; // Don't sanitize password
-    const username = sanitizeInput(req.body.username);
-
-    const users = readUsers();
-
-    // Check if user already exists
-    if (users.find(u => u.email === email)) {
-      return res.status(400).json({ error: 'User already exists' });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, config.SALT_ROUNDS);
-
-    // Create new user
-    const newUser = {
-      id: uuidv4(),
-      email,
-      username,
-      password: hashedPassword,
-      twoFactorEnabled: false,
-      twoFactorSecret: null,
-      createdAt: new Date().toISOString()
-    };
-
-    users.push(newUser);
-    writeUsers(users);
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: newUser.id, email: newUser.email, mode: 'normal' },
-      config.JWT_SECRET,
-      { expiresIn: config.TOKEN_EXPIRY }
-    );
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: newUser.id,
-        email: newUser.email,
-        username: newUser.username,
-        twoFactorEnabled: newUser.twoFactorEnabled
-      }
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed' });
-  }
+  // Registration through this endpoint is disabled
+  // All new users must register via Aadhaar verification
+  return res.status(403).json({ 
+    error: 'Direct registration is disabled. All new users must register with Aadhaar verification.',
+    redirectTo: '/register-aadhaar'
+  });
 });
 
 // Normal Mode - Login
@@ -377,9 +333,24 @@ router.post('/secure/end-session', async (req, res) => {
     }
 
     const decoded = jwt.verify(sessionToken, config.JWT_SECRET);
-    removeSessionToken(decoded.sessionId);
+    const sessionId = decoded.sessionId;
+    
+    // Delete all messages from rooms created by this user in secure mode
+    deleteMessagesForUser(sessionId, 'secure');
+    
+    // Delete all rooms created by this user in secure mode
+    const rooms = getRooms('secure');
+    rooms.forEach(room => {
+      if (room.createdBy === sessionId) {
+        deleteRoom(room.id, 'secure');
+        console.log(`Deleted secure room on session end: ${room.name} (${room.id})`);
+      }
+    });
+    
+    // Remove session token
+    removeSessionToken(sessionId);
 
-    res.json({ success: true, message: 'Session ended' });
+    res.json({ success: true, message: 'Session ended and all data deleted' });
   } catch (error) {
     console.error('Session end error:', error);
     res.status(500).json({ error: 'Failed to end session' });

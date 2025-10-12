@@ -53,18 +53,8 @@ const FILE_SIZE_LIMITS = {
   document: 10 * 1024 * 1024   // 10MB
 };
 
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const mode = req.body.mode || 'normal';
-    const uploadPath = mode === 'secure' ? SECURE_UPLOADS_DIR : UPLOADS_DIR;
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  }
-});
+// Configure multer to store files in memory (not on disk)
+const storage = multer.memoryStorage();
 
 // File filter
 const fileFilter = (req, file, cb) => {
@@ -145,7 +135,7 @@ const generateFileTags = (fileName, mimeType, fileSize) => {
   return [...new Set(tags)].slice(0, 8);
 };
 
-// Upload endpoint
+// Upload endpoint - Convert to base64 (no disk storage)
 router.post('/upload', upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
@@ -155,17 +145,22 @@ router.post('/upload', upload.single('file'), (req, res) => {
     const fileCategory = getFileCategory(req.file.mimetype);
     const sizeLimit = FILE_SIZE_LIMITS[fileCategory];
 
+    console.log('[Upload] File received:', req.file.originalname, 'Size:', req.file.size, 'bytes');
+
     // Check file size for specific category
     if (req.file.size > sizeLimit) {
-      // Delete the uploaded file
-      fs.unlinkSync(req.file.path);
       return res.status(400).json({
         error: `File too large. Maximum size for ${fileCategory} is ${sizeLimit / 1024 / 1024}MB`
       });
     }
 
     const mode = req.body.mode || 'normal';
-    const fileUrl = `/uploads/${mode === 'secure' ? 'secure/' : ''}${req.file.filename}`;
+
+    // Convert file buffer to base64 (NO DISK STORAGE)
+    const base64Data = req.file.buffer.toString('base64');
+    const dataUrl = `data:${req.file.mimetype};base64,${base64Data}`;
+
+    console.log('[Upload] Converted to base64, size:', dataUrl.length, 'chars');
 
     // Generate AI tags for the file (only in normal mode)
     let tags = [];
@@ -173,30 +168,18 @@ router.post('/upload', upload.single('file'), (req, res) => {
       tags = generateFileTags(req.file.originalname, req.file.mimetype, req.file.size);
     }
 
-    // For secure mode, schedule file deletion after 1 hour
-    if (mode === 'secure') {
-      setTimeout(() => {
-        try {
-          if (fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-            console.log(`Deleted secure file: ${req.file.filename}`);
-          }
-        } catch (error) {
-          console.error('Error deleting secure file:', error);
-        }
-      }, 60 * 60 * 1000); // 1 hour
-    }
-
+    // Return base64 data URL (stored in database, not on disk)
     res.json({
       success: true,
       file: {
-        filename: req.file.filename,
+        filename: req.file.originalname,
         originalName: req.file.originalname,
         mimetype: req.file.mimetype,
         size: req.file.size,
-        url: fileUrl,
+        url: dataUrl, // Base64 data URL instead of file path
         category: fileCategory,
-        tags: tags
+        tags: tags,
+        isBase64: true
       }
     });
   } catch (error) {
@@ -227,12 +210,14 @@ router.delete('/upload/:filename', (req, res) => {
   }
 });
 
-// Serve uploaded files
+// Serve uploaded files with inline disposition (preview, not download)
 router.get('/uploads/:filename', (req, res) => {
   const { filename } = req.params;
   const filePath = path.join(UPLOADS_DIR, filename);
   
   if (fs.existsSync(filePath)) {
+    // Set Content-Disposition to inline for preview
+    res.setHeader('Content-Disposition', 'inline');
     res.sendFile(filePath);
   } else {
     res.status(404).json({ error: 'File not found' });
@@ -244,6 +229,8 @@ router.get('/uploads/secure/:filename', (req, res) => {
   const filePath = path.join(SECURE_UPLOADS_DIR, filename);
   
   if (fs.existsSync(filePath)) {
+    // Set Content-Disposition to inline for preview
+    res.setHeader('Content-Disposition', 'inline');
     res.sendFile(filePath);
   } else {
     res.status(404).json({ error: 'File not found' });

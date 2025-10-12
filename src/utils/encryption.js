@@ -35,34 +35,24 @@ export const hashPassword = (password) => {
 
 // Screenshot detection
 export const detectScreenshot = (callback) => {
-  // Detect common screenshot shortcuts
+  // Detect common screenshot shortcuts ONLY
   const handleKeyPress = (e) => {
     // Windows: Win+Shift+S, PrtScn
-    // Mac: Cmd+Shift+3, Cmd+Shift+4
+    // Mac: Cmd+Shift+3, Cmd+Shift+4, Cmd+Shift+5
     if (
       (e.key === 'PrintScreen') ||
       (e.shiftKey && e.metaKey && (e.key === '3' || e.key === '4' || e.key === '5')) ||
-      (e.shiftKey && e.metaKey && e.key === 's')
+      (e.shiftKey && e.key === 'S' && e.metaKey) // Windows Snipping Tool (Win+Shift+S)
     ) {
+      console.log('[Screenshot] Screenshot key detected:', e.key);
       callback();
     }
   };
 
-  document.addEventListener('keyup', handleKeyPress);
-
-  // Detect visibility change (may indicate screenshot)
-  const handleVisibilityChange = () => {
-    if (document.hidden) {
-      // Page hidden - possible screenshot
-      callback();
-    }
-  };
-
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('keydown', handleKeyPress);
 
   // Cleanup function
   return () => {
-    document.removeEventListener('keyup', handleKeyPress);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.removeEventListener('keydown', handleKeyPress);
   };
 };

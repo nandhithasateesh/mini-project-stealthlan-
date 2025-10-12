@@ -8,11 +8,13 @@ An AI-powered offline chat web application for real-time LAN communication with 
 ## Features
 
 ### Normal Mode
+- **Mandatory Aadhaar Verification** for all new users
 - Persistent chat history stored in JSON
 - Create and manage chat rooms
 - Customizable user preferences
 - File sharing with storage
 - AI chat assistance
+- 2FA support (optional)
 
 ### Secure Mode
 - Ephemeral messages (no permanent storage)
@@ -20,6 +22,7 @@ An AI-powered offline chat web application for real-time LAN communication with 
 - View-once media
 - Anonymous sessions
 - Maximum privacy
+- No Aadhaar required (temporary sessions)
 
 ## Tech Stack
 
@@ -90,18 +93,49 @@ stealthlan/
 └── tailwind.config.js
 ```
 
+## Registration & Authentication
+
+### New User Registration (MANDATORY)
+🔒 **All new users MUST register with Aadhaar verification**
+
+1. Navigate to the application
+2. Click on "Normal Mode"
+3. Click "Register with Aadhaar Verification"
+4. Provide:
+   - Username
+   - Full Name (as on Aadhaar)
+   - Password
+   - Aadhaar Card Image (front side)
+5. System will:
+   - Extract and validate Aadhaar number using Verhoeff algorithm
+   - Verify name matches Aadhaar card
+   - Delete image immediately after verification (privacy)
+   - Create your account
+
+### Login (Existing Users)
+- Use email/username and password
+- Optional 2FA for enhanced security
+
+### Secure Mode
+- No registration required
+- Create temporary anonymous sessions
+- All data deleted when session ends
+
 ## Development Status
 
 ✅ Landing page with animations and mode selection
 ✅ Authentication system (Normal & Secure modes)
-✅ Normal Mode: Email/password with 2FA support
+✅ **Mandatory Aadhaar verification for new users**
+✅ Normal Mode: Login with 2FA support
 ✅ Secure Mode: Ephemeral sessions with optional 2FA
 ✅ Login attempt tracking and account lockout
 ✅ Backend API with Node.js + Express
-⏳ Normal Mode chat interface (pending)
-⏳ Secure Mode chat interface (pending)
-⏳ AI integration (pending)
-⏳ LAN networking (pending)
+✅ Normal Mode chat interface
+✅ Secure Mode chat interface
+✅ Room management with passwords
+✅ File sharing and uploads
+✅ AI integration
+✅ LAN networking support
 
 ## License
 

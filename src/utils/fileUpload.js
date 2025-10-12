@@ -4,17 +4,23 @@ export const uploadFile = async (file, mode = 'normal') => {
   formData.append('mode', mode);
 
   try {
-    const response = await fetch('http://localhost:5000/api/upload', {
+    const uploadUrl = `${window.location.protocol}//${window.location.hostname}:5000/api/upload`;
+    console.log('[Upload] Uploading file to:', uploadUrl);
+    
+    const response = await fetch(uploadUrl, {
       method: 'POST',
       body: formData,
     });
 
     const data = await response.json();
+    console.log('[Upload] Server response:', data);
 
     if (!response.ok) {
+      console.error('[Upload] Upload failed:', data.error);
       throw new Error(data.error || 'Upload failed');
     }
 
+    console.log('[Upload] Upload completed successfully');
     return data;
   } catch (error) {
     console.error('Upload error:', error);
@@ -24,7 +30,8 @@ export const uploadFile = async (file, mode = 'normal') => {
 
 export const deleteFile = async (filename, mode = 'normal') => {
   try {
-    const response = await fetch(`http://localhost:5000/api/upload/${filename}?mode=${mode}`, {
+    const deleteUrl = `${window.location.protocol}//${window.location.hostname}:5000/api/upload/${filename}?mode=${mode}`;
+    const response = await fetch(deleteUrl, {
       method: 'DELETE',
     });
 
@@ -42,7 +49,7 @@ export const deleteFile = async (filename, mode = 'normal') => {
 };
 
 export const getFileUrl = (filename, mode = 'normal') => {
-  return `http://localhost:5000/api/uploads/${mode === 'secure' ? 'secure/' : ''}${filename}`;
+  return `${window.location.protocol}//${window.location.hostname}:5000/api/uploads/${mode === 'secure' ? 'secure/' : ''}${filename}`;
 };
 
 export const formatFileSize = (bytes) => {

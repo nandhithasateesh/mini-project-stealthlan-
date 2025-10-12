@@ -7,15 +7,17 @@ import { apiLimiter, authLimiter, registerLimiter } from './middleware/rateLimit
 import authRoutes from './routes/auth.js';
 import uploadRoutes from './routes/upload.js';
 import aiRoutes from './routes/ai.js';
+import aadhaarRoutes from './routes/aadhaar.js';
 import { initializeDataFiles } from './utils/fileHandler.js';
 import { initializeRoomFiles } from './utils/roomManager.js';
 import { setupChatHandlers } from './socket/chatHandler.js';
+import { startCleanupScheduler } from './utils/cleanupScheduler.js';
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: config.ALLOWED_ORIGINS,
+    origin: true, // Allow all origins in development
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -23,26 +25,33 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(cors({
-  origin: config.ALLOWED_ORIGINS,
+  origin: true, // Allow all origins in development
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' })); // Limit payload size
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Apply rate limiting to all API routes
 app.use('/api/', apiLimiter);
 
+// Serve static files (uploads)
+app.use('/uploads', express.static('uploads'));
+
 // Initialize data files
 initializeDataFiles();
 initializeRoomFiles();
 
-// Routes with specific rate limiters
+// Start cleanup scheduler for expired rooms and messages
+startCleanupScheduler();
+
+// Routes
 app.use('/api/auth/normal/register', registerLimiter);
 app.use('/api/auth/normal/login', authLimiter);
 app.use('/api/auth/secure/create-session', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', aiRoutes);
+app.use('/api/aadhaar', aadhaarRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

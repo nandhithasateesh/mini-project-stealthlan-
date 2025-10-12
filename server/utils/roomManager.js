@@ -65,7 +65,9 @@ export const createRoom = (roomData, mode = 'normal') => {
     rooms.push(room);
     writeRooms(rooms);
   } else {
+    console.log(`[DEBUG] Storing secure room ${room.id} (${room.name}) in Map`);
     secureRooms.set(room.id, room);
+    console.log(`[DEBUG] Secure rooms Map now has ${secureRooms.size} rooms`);
   }
 
   return room;
@@ -74,8 +76,11 @@ export const createRoom = (roomData, mode = 'normal') => {
 export const getRooms = (mode = 'normal') => {
   if (mode === 'normal') {
     const allRooms = readRooms();
+    console.log(`[getRooms] Read ${allRooms.length} total rooms from file`);
     // Only return rooms that are explicitly normal mode or have no mode set (legacy)
-    return allRooms.filter(room => !room.mode || room.mode === 'normal');
+    const normalRooms = allRooms.filter(room => !room.mode || room.mode === 'normal');
+    console.log(`[getRooms] Filtered to ${normalRooms.length} normal mode rooms`);
+    return normalRooms;
   } else {
     // Clean up expired rooms
     const now = Date.now();
@@ -86,7 +91,9 @@ export const getRooms = (mode = 'normal') => {
       }
     }
     // Only return secure mode rooms
-    return Array.from(secureRooms.values()).filter(room => room.mode === 'secure');
+    const secureRoomsList = Array.from(secureRooms.values()).filter(room => room.mode === 'secure');
+    console.log(`[getRooms] Returning ${secureRoomsList.length} secure mode rooms from memory`);
+    return secureRoomsList;
   }
 };
 
@@ -95,7 +102,11 @@ export const getRoom = (roomId, mode = 'normal') => {
     const rooms = readRooms();
     return rooms.find(r => r.id === roomId);
   } else {
-    return secureRooms.get(roomId);
+    console.log(`[DEBUG] Looking for room ${roomId} in secure mode. Total secure rooms: ${secureRooms.size}`);
+    console.log(`[DEBUG] Secure room IDs:`, Array.from(secureRooms.keys()));
+    const room = secureRooms.get(roomId);
+    console.log(`[DEBUG] Room found:`, room ? 'YES' : 'NO');
+    return room;
   }
 };
 
@@ -110,6 +121,22 @@ export const deleteRoom = (roomId, mode = 'normal') => {
     delete messages[roomId];
     writeMessages(messages);
   } else {
+    // Secure mode: Delete files before deleting room
+    const messages = secureMessages.get(roomId) || [];
+    messages.forEach(message => {
+      if (message.fileUrl && (message.type === 'image' || message.type === 'video' || message.type === 'document' || message.type === 'file')) {
+        try {
+          const filePath = path.join(__dirname, '..', message.fileUrl);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`[Secure Cleanup] Deleted file: ${message.fileUrl}`);
+          }
+        } catch (error) {
+          console.error(`[Secure Cleanup] Error deleting file ${message.fileUrl}:`, error);
+        }
+      }
+    });
+    
     secureRooms.delete(roomId);
     secureMessages.delete(roomId);
   }
@@ -177,10 +204,15 @@ export const addMessage = (roomId, message, mode = 'normal') => {
   
   // Calculate message expiry based on room's messageExpiry setting
   let expiresAt = message.expiresAt || null;
+  
+  // In NORMAL mode: use messageExpiry setting
   if (room && room.messageExpiry && room.messageExpiry > 0 && mode === 'normal') {
     // Set expiry time based on room's messageExpiry (in hours)
     expiresAt = new Date(Date.now() + room.messageExpiry * 60 * 60 * 1000).toISOString();
   }
+  
+  // In SECURE mode: messages are deleted when session ends (no auto-expiry timer)
+  // They're stored in memory and cleared when the room is deleted on session end
   
   const msg = {
     id: uuidv4(),
@@ -356,4 +388,20 @@ export const markMessageAsRead = (roomId, messageId, userId, mode = 'normal') =>
       }
     }
   }
+};
+
+// Delete all messages from rooms created by a specific user (for secure mode session cleanup)
+export const deleteMessagesForUser = (userId, mode = 'secure') => {
+  if (mode === 'secure') {
+    const rooms = Array.from(secureRooms.values());
+    const userRooms = rooms.filter(room => room.createdBy === userId);
+    
+    userRooms.forEach(room => {
+      secureMessages.delete(room.id);
+      console.log(`Deleted all messages from secure room: ${room.name} (${room.id})`);
+    });
+    
+    return userRooms.length;
+  }
+  return 0;
 };

@@ -13,7 +13,9 @@ import {
   togglePinMessage,
   markMessageAsRead,
   readRooms,
-  writeRooms
+  writeRooms,
+  readMessages,
+  deleteMessagesForUser
 } from '../utils/roomManager.js';
 import { validateSocketData } from '../middleware/validation.js';
 
@@ -26,10 +28,12 @@ export const setupChatHandlers = (io) => {
     console.log(`User connected: ${socket.id}`);
 
     // User joins with their info
-    socket.on('user:join', ({ userId, username, mode }) => {
+    socket.on('user:join', ({ userId, username, mode }, callback) => {
       socket.userId = userId;
       socket.username = username;
       socket.mode = mode;
+      
+      console.log(`[USER:JOIN] User ${username} joined with mode: ${mode}`);
       
       onlineUsers.set(userId, {
         socketId: socket.id,
@@ -39,13 +43,18 @@ export const setupChatHandlers = (io) => {
       });
 
       io.emit('users:online', Array.from(onlineUsers.values()));
+      
+      // Acknowledge that user:join is complete
+      if (callback) {
+        callback({ success: true, userId, username, mode });
+      }
     });
 
     // Create room
     socket.on('room:create', (roomData, callback) => {
       try {
-        // Validate input
-        const validation = validateSocketData.roomCreate(roomData);
+        // Validate input (pass mode for secure mode password validation)
+        const validation = validateSocketData.roomCreate(roomData, socket.mode);
         if (!validation.isValid) {
           return callback({ success: false, error: validation.errors.join(', ') });
         }
@@ -59,6 +68,8 @@ export const setupChatHandlers = (io) => {
         const room = createRoom(roomWithCreator, socket.mode);
         socket.join(room.id);
         
+        console.log(`[CREATE] Room created: ${room.name} (ID: ${room.id}, mode: ${room.mode}) by ${socket.username}`);
+        
         io.emit('room:created', room);
         callback({ success: true, room });
       } catch (error) {
@@ -69,7 +80,9 @@ export const setupChatHandlers = (io) => {
     // Get all rooms
     socket.on('rooms:get', (callback) => {
       try {
+        console.log(`[ROOMS:GET] User ${socket.username} requesting rooms for ${socket.mode} mode`);
         const rooms = getRooms(socket.mode);
+        console.log(`[ROOMS:GET] Returning ${rooms.length} rooms`);
         callback({ success: true, rooms });
       } catch (error) {
         callback({ success: false, error: error.message });
@@ -77,7 +90,7 @@ export const setupChatHandlers = (io) => {
     });
 
     // Join room
-    socket.on('room:join', (data, callback) => {
+    socket.on('room:join', async (data, callback) => {
       try {
         // Validate input
         const validation = validateSocketData.roomJoin(data);
@@ -86,11 +99,22 @@ export const setupChatHandlers = (io) => {
         }
 
         const { roomId, password } = validation.sanitized;
+        console.log(`[JOIN] User ${socket.userId} (${socket.mode}) trying to join room ${roomId}`);
+        
         const room = getRoom(roomId, socket.mode);
         
         if (!room) {
+          console.log(`[JOIN ERROR] Room ${roomId} not found in ${socket.mode} mode`);
+          // Try to find in the other mode for better error message
+          const otherMode = socket.mode === 'secure' ? 'normal' : 'secure';
+          const roomInOtherMode = getRoom(roomId, otherMode);
+          if (roomInOtherMode) {
+            return callback({ success: false, error: `This room exists in ${otherMode} mode. Please switch modes to access it.` });
+          }
           return callback({ success: false, error: 'Room not found' });
         }
+        
+        console.log(`[JOIN] Room found: ${room.name} (mode: ${room.mode})`);
 
         // Check if room mode matches user mode
         if (room.mode && room.mode !== socket.mode) {
@@ -120,6 +144,18 @@ export const setupChatHandlers = (io) => {
           username: socket.username
         });
 
+        // Get online users in this room
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        const roomOnlineUsers = socketsInRoom.map(s => ({
+          userId: s.userId,
+          username: s.username,
+          socketId: s.id
+        })).filter(u => u.userId); // Filter out undefined users
+
+        // Emit to room
+        io.to(roomId).emit('room:online-users', roomOnlineUsers);
+
+        console.log(`[JOIN SUCCESS] User ${socket.username} joined room ${room.name}. ${roomOnlineUsers.length} users online in room`);
         callback({ success: true, room, messages });
       } catch (error) {
         callback({ success: false, error: error.message });
@@ -127,7 +163,7 @@ export const setupChatHandlers = (io) => {
     });
 
     // Leave room
-    socket.on('room:leave', ({ roomId }, callback) => {
+    socket.on('room:leave', async ({ roomId }, callback) => {
       try {
         const room = getRoom(roomId, socket.mode);
         
@@ -144,6 +180,15 @@ export const setupChatHandlers = (io) => {
           userId: socket.userId,
           username: socket.username
         });
+
+        // Update online users count
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        const roomOnlineUsers = socketsInRoom.map(s => ({
+          userId: s.userId,
+          username: s.username,
+          socketId: s.id
+        })).filter(u => u.userId);
+        io.to(roomId).emit('room:online-users', roomOnlineUsers);
 
         // Don't delete room when members leave - rooms persist until expiry time
 
@@ -344,30 +389,112 @@ export const setupChatHandlers = (io) => {
       });
     });
 
+    // File download notification
+    socket.on('file:downloaded', ({ roomId, fileName }) => {
+      console.log(`[FILE:DOWNLOAD] ${socket.username} downloaded ${fileName} in room ${roomId}`);
+      io.to(roomId).emit('file:download-alert', {
+        username: socket.username,
+        fileName: fileName,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Dashboard statistics (Normal Mode only)
+    socket.on('dashboard:get-stats', (callback) => {
+      try {
+        const rooms = readRooms();
+        const messages = readMessages();
+        
+        // Count total messages
+        let totalMessages = 0;
+        let filesShared = {
+          images: 0,
+          videos: 0,
+          documents: 0,
+          total: 0
+        };
+        
+        Object.values(messages).forEach(roomMessages => {
+          totalMessages += roomMessages.length;
+          
+          roomMessages.forEach(msg => {
+            if (msg.type === 'image') filesShared.images++;
+            else if (msg.type === 'video') filesShared.videos++;
+            else if (msg.type === 'document' || msg.type === 'file') filesShared.documents++;
+          });
+        });
+        
+        filesShared.total = filesShared.images + filesShared.videos + filesShared.documents;
+        
+        // Count active rooms (rooms with messages in last 24 hours)
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        const activeRooms = rooms.filter(room => {
+          const roomMessages = messages[room.id] || [];
+          return roomMessages.some(msg => new Date(msg.timestamp).getTime() > oneDayAgo);
+        }).length;
+        
+        // Count user's rooms
+        const userRooms = rooms.filter(room => 
+          room.members && room.members.includes(socket.userId)
+        ).length;
+        
+        const stats = {
+          totalRooms: rooms.length,
+          activeRooms: activeRooms,
+          totalMessages: totalMessages,
+          filesShared: filesShared,
+          userRooms: userRooms,
+          recentActivity: []
+        };
+        
+        callback({ success: true, stats });
+      } catch (error) {
+        console.error('Dashboard stats error:', error);
+        callback({ success: false, error: 'Failed to get statistics' });
+      }
+    });
+
     // Disconnect
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       console.log(`User disconnected: ${socket.id}`);
       
       if (socket.userId) {
         onlineUsers.delete(socket.userId);
         io.emit('users:online', Array.from(onlineUsers.values()));
         
-        // Clear typing indicators
+        // Clear typing indicators and update room online counts
         for (const [key, value] of typingUsers.entries()) {
           if (key.includes(socket.userId)) {
             typingUsers.delete(key);
             io.to(value.roomId).emit('user:stopped-typing', { userId: socket.userId });
+            
+            // Update online users for this room
+            try {
+              const socketsInRoom = await io.in(value.roomId).fetchSockets();
+              const roomOnlineUsers = socketsInRoom.map(s => ({
+                userId: s.userId,
+                username: s.username,
+                socketId: s.id
+              })).filter(u => u.userId);
+              io.to(value.roomId).emit('room:online-users', roomOnlineUsers);
+            } catch (err) {
+              console.error('Error updating room online users:', err);
+            }
           }
         }
 
-        // Delete all secure mode rooms created by this user
+        // Delete all secure mode rooms and messages created by this user
         if (socket.mode === 'secure') {
+          // Delete all messages from rooms created by this user
+          deleteMessagesForUser(socket.userId, 'secure');
+          
+          // Delete all rooms created by this user
           const rooms = getRooms('secure');
           rooms.forEach(room => {
             if (room.createdBy === socket.userId) {
               deleteRoom(room.id, 'secure');
               io.emit('room:removed', { roomId: room.id });
-              console.log(`Deleted secure room: ${room.name} (${room.id})`);
+              console.log(`Deleted secure room on disconnect: ${room.name} (${room.id})`);
             }
           });
         }

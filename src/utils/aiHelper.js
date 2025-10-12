@@ -152,7 +152,7 @@ export const detectLanguage = (text) => {
  */
 export const autoTranslate = async (text, targetLang, sourceLang = 'auto') => {
   try {
-    const response = await fetch('http://localhost:5000/api/translate', {
+    const response = await fetch(`${window.location.protocol}//${window.location.hostname}:5000/api/translate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -177,16 +177,12 @@ export const autoTranslate = async (text, targetLang, sourceLang = 'auto') => {
 };
 
 /**
- * Convert audio to text using Web Speech API or server-side transcription
+ * Convert audio to text using server-side transcription
+ * Note: Web Speech API only works with live microphone input, not pre-recorded audio
  */
 export const audioToText = async (audioBlob) => {
   try {
-    // Try using Web Speech API first (browser-based)
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      return await audioToTextBrowser(audioBlob);
-    }
-    
-    // Fallback to server-side transcription
+    // Use server-side transcription for pre-recorded audio
     return await audioToTextServer(audioBlob);
   } catch (error) {
     console.error('Audio-to-text error:', error);
@@ -194,33 +190,6 @@ export const audioToText = async (audioBlob) => {
   }
 };
 
-/**
- * Browser-based audio-to-text using Web Speech API
- */
-const audioToTextBrowser = (audioBlob) => {
-  return new Promise((resolve, reject) => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-    
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      resolve(transcript);
-    };
-    
-    recognition.onerror = (event) => {
-      reject(new Error(`Speech recognition error: ${event.error}`));
-    };
-    
-    // Convert blob to audio and play for recognition
-    const audio = new Audio(URL.createObjectURL(audioBlob));
-    audio.play();
-    recognition.start();
-  });
-};
 
 /**
  * Server-side audio-to-text transcription
@@ -230,7 +199,7 @@ const audioToTextServer = async (audioBlob) => {
   formData.append('audio', audioBlob, 'audio.webm');
   
   try {
-    const response = await fetch('http://localhost:5000/api/transcribe', {
+    const response = await fetch(`${window.location.protocol}//${window.location.hostname}:5000/api/transcribe`, {
       method: 'POST',
       body: formData
     });

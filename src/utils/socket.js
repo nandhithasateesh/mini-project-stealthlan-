@@ -1,15 +1,20 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = 'http://localhost:5000';
+// Use the current host's IP/domain, but connect to port 5000
+// This allows the app to work on both localhost and LAN
+const SOCKET_URL = `${window.location.protocol}//${window.location.hostname}:5000`;
 
 let socket = null;
 let messageQueue = [];
 let isConnected = false;
+let isUserJoined = false;
 
 export const initializeSocket = (userId, username, mode) => {
   if (socket) {
     socket.disconnect();
   }
+
+  console.log(`🔌 Connecting to socket server at: ${SOCKET_URL}`);
 
   socket = io(SOCKET_URL, {
     autoConnect: true,
@@ -24,21 +29,32 @@ export const initializeSocket = (userId, username, mode) => {
   socket.on('connect', () => {
     console.log('✅ Socket connected:', socket.id);
     isConnected = true;
-    socket.emit('user:join', { userId, username, mode });
+    isUserJoined = false;
     
-    // Send queued messages
-    if (messageQueue.length > 0) {
-      console.log(`📤 Sending ${messageQueue.length} queued messages`);
-      messageQueue.forEach(({ event, data, callback }) => {
-        socket.emit(event, data, callback);
-      });
-      messageQueue = [];
-    }
+    // Emit user:join and wait for callback confirmation
+    socket.emit('user:join', { userId, username, mode }, (response) => {
+      if (response && response.success) {
+        console.log(`✅ User joined server with mode: ${response.mode}`);
+        isUserJoined = true;
+        
+        // Send queued messages
+        if (messageQueue.length > 0) {
+          console.log(`📤 Sending ${messageQueue.length} queued messages`);
+          messageQueue.forEach(({ event, data, callback }) => {
+            socket.emit(event, data, callback);
+          });
+          messageQueue = [];
+        }
+      } else {
+        console.error('❌ User join failed');
+      }
+    });
   });
 
   socket.on('disconnect', (reason) => {
     console.log('❌ Socket disconnected:', reason);
     isConnected = false;
+    isUserJoined = false;
   });
 
   socket.on('connect_error', (error) => {
@@ -75,17 +91,20 @@ export const disconnectSocket = () => {
     socket.disconnect();
     socket = null;
     isConnected = false;
+    isUserJoined = false;
     messageQueue = [];
   }
 };
 
 export const emitWithQueue = (event, data, callback) => {
-  if (socket && isConnected) {
+  if (socket && isConnected && isUserJoined) {
     socket.emit(event, data, callback);
   } else {
-    console.log(`📥 Queuing message: ${event}`);
+    console.log(`📥 Queuing message: ${event} (connected: ${isConnected}, joined: ${isUserJoined})`);
     messageQueue.push({ event, data, callback });
   }
 };
+
+export const isUserJoinedToServer = () => isUserJoined;
 
 export const getConnectionStatus = () => isConnected;

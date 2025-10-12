@@ -84,7 +84,7 @@ export const secureSessionValidation = [
 
 // Socket event validation
 export const validateSocketData = {
-  roomCreate: (data) => {
+  roomCreate: (data, mode = 'normal') => {
     const errors = [];
     
     if (!data.name || typeof data.name !== 'string') {
@@ -95,6 +95,11 @@ export const validateSocketData = {
     
     if (data.description && data.description.length > 200) {
       errors.push('Description must be less than 200 characters');
+    }
+    
+    // In secure mode, password is mandatory
+    if (mode === 'secure' && (!data.password || data.password.trim().length === 0)) {
+      errors.push('Password is required for secure mode rooms');
     }
     
     if (data.password && (data.password.length < 4 || data.password.length > 50)) {

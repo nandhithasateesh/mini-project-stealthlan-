@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { User, Shield, AlertCircle, Lock } from 'lucide-react'
+import { API_ENDPOINTS } from '../../config/api'
 
 const SecureLogin = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState({
@@ -20,7 +21,9 @@ const SecureLogin = ({ onLoginSuccess }) => {
     setLoading(true)
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/secure/create-session', {
+      console.log(`[SecureLogin] Attempting to connect to: ${API_ENDPOINTS.SECURE_CREATE_SESSION}`);
+      
+      const response = await fetch(API_ENDPOINTS.SECURE_CREATE_SESSION, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,7 +53,12 @@ const SecureLogin = ({ onLoginSuccess }) => {
         })
       }
     } catch (err) {
-      setError(err.message)
+      console.error('[SecureLogin] Error:', err);
+      if (err.message.includes('fetch')) {
+        setError('Cannot connect to server. Make sure the server is running on port 5000 and accessible from your device.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false)
     }
@@ -62,7 +70,9 @@ const SecureLogin = ({ onLoginSuccess }) => {
     setLoading(true)
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/secure/validate-session', {
+      console.log(`[SecureLogin] Validating 2FA with: ${API_ENDPOINTS.SECURE_VALIDATE_SESSION}`);
+      
+      const response = await fetch(API_ENDPOINTS.SECURE_VALIDATE_SESSION, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -86,7 +96,12 @@ const SecureLogin = ({ onLoginSuccess }) => {
         sessionToken
       })
     } catch (err) {
-      setError(err.message)
+      console.error('[SecureLogin] Validation error:', err);
+      if (err.message.includes('fetch')) {
+        setError('Cannot connect to server. Make sure the server is running on port 5000 and accessible from your device.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false)
     }
