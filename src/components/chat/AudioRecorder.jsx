@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Mic, Square, Send, X, FileText } from 'lucide-react'
 import { audioToText } from '../../utils/aiHelper'
 
-const AudioRecorder = ({ onSendAudio, onCancel, mode }) => {
+const AudioRecorder = ({ onSendAudio, onCancel, mode, socket, roomId }) => {
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState(null)
   const [recordingTime, setRecordingTime] = useState(0)
@@ -48,6 +48,11 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode }) => {
       mediaRecorderRef.current.start()
       setIsRecording(true)
 
+      // Notify others that recording started
+      if (socket && roomId) {
+        socket.emit('recording:start', { roomId, type: 'audio' })
+      }
+
       // Start timer
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1)
@@ -76,6 +81,11 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode }) => {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
       clearInterval(timerRef.current)
+      
+      // Notify others that recording stopped
+      if (socket && roomId) {
+        socket.emit('recording:stop', { roomId })
+      }
     }
   }
 
@@ -109,6 +119,9 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode }) => {
   const handleCancel = () => {
     if (isRecording) {
       stopRecording()
+    } else if (socket && roomId) {
+      // If not recording but closing, still notify
+      socket.emit('recording:stop', { roomId })
     }
     setAudioBlob(null)
     setRecordingTime(0)

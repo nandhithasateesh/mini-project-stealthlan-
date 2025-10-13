@@ -62,16 +62,22 @@ export function validateAadhaar(aadhaarNumber) {
 export function extractAadhaarNumber(text) {
   console.log('[Verhoeff] Starting Aadhaar number extraction...');
   
-  // Try multiple patterns
+  // Clean text - remove extra whitespace and normalize
+  const cleanedText = text.replace(/\s+/g, ' ').trim();
+  console.log('[Verhoeff] Cleaned text length:', cleanedText.length);
+  
+  // Try multiple patterns (order matters - most specific first)
   const patterns = [
-    // Pattern 1: 12 consecutive digits (no spaces)
-    /\d{12}/g,
-    // Pattern 2: 4-4-4 format with spaces
-    /\d{4}\s+\d{4}\s+\d{4}/g,
+    // Pattern 1: 4-4-4 format with spaces (most common on Aadhaar)
+    /\b\d{4}\s+\d{4}\s+\d{4}\b/g,
+    // Pattern 2: 12 consecutive digits
+    /\b\d{12}\b/g,
     // Pattern 3: 4-4-4 format with any separator
-    /\d{4}[\s\-\.]+\d{4}[\s\-\.]+\d{4}/g,
-    // Pattern 4: Any 12 digits with possible spaces/separators
-    /(\d[\s\-\.]?){12}/g
+    /\b\d{4}[\s\-\.]+\d{4}[\s\-\.]+\d{4}\b/g,
+    // Pattern 4: More lenient - any 12 digits with possible spaces/separators
+    /\d{4}[\s\-\.]?\d{4}[\s\-\.]?\d{4}/g,
+    // Pattern 5: Very lenient - find any sequence of 12 digits
+    /\d{12}/g
   ];
 
   let allMatches = [];
@@ -121,54 +127,36 @@ export function extractNameFromAadhaar(text) {
   // Common patterns on Aadhaar cards
   const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   console.log(`[Verhoeff] Processing ${lines.length} lines of text`);
+  console.log('[Verhoeff] First 10 lines:', lines.slice(0, 10));
   
-  // Look for name after common keywords
-  const nameKeywords = ['name', 'नाम', 'Name:', 'NAME:', 'name:', 'Name'];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Check if line contains name keyword
-    for (const keyword of nameKeywords) {
-      if (line.toLowerCase().includes(keyword.toLowerCase())) {
-        console.log(`[Verhoeff] Found keyword "${keyword}" in line: ${line}`);
-        
-        // Name might be on same line or next line
-        const sameLine = line.replace(new RegExp(keyword, 'i'), '').trim();
-        if (sameLine && sameLine.length > 2 && /^[a-zA-Z\s]+$/.test(sameLine)) {
-          console.log(`[Verhoeff] ✓ Name found on same line: ${sameLine}`);
-          return sameLine;
-        }
-        
-        // Check next line
-        if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1].trim();
-          if (nextLine && nextLine.length > 2 && /^[a-zA-Z\s]+$/.test(nextLine)) {
-            console.log(`[Verhoeff] ✓ Name found on next line: ${nextLine}`);
-            return nextLine;
-          }
-        }
-      }
-    }
-  }
-  
-  console.log('[Verhoeff] No name found with keywords, trying fallback...');
-  
-  // Fallback: Look for first line with only letters and spaces (likely the name)
-  const skipWords = ['government', 'india', 'uidai', 'aadhaar', 'unique', 'identification', 'authority', 'dob', 'date', 'birth', 'male', 'female'];
+  // Collect all potential English names (lines with only English letters and spaces)
+  const potentialNames = [];
+  const skipWords = ['government', 'india', 'uidai', 'aadhaar', 'unique', 'identification', 'authority', 'dob', 'date', 'birth', 'male', 'female', 'issue', 'vid', 'enrolment'];
   
   for (const line of lines) {
-    if (line.length > 2 && line.length < 50 && /^[a-zA-Z\s]+$/.test(line)) {
-      // Skip common words
-      if (!skipWords.some(word => line.toLowerCase().includes(word))) {
-        console.log(`[Verhoeff] ✓ Name found via fallback: ${line}`);
-        return line;
+    // Must be English letters only, reasonable length
+    if (line.length >= 3 && line.length <= 50 && /^[a-zA-Z\s]+$/.test(line)) {
+      // Skip common Aadhaar card words
+      const lowerLine = line.toLowerCase();
+      if (!skipWords.some(word => lowerLine.includes(word))) {
+        potentialNames.push(line);
+        console.log(`[Verhoeff] Potential name found: ${line}`);
       }
     }
   }
   
-  console.log('[Verhoeff] ✗ No name found in text');
-  return null;
+  if (potentialNames.length === 0) {
+    console.log('[Verhoeff] ✗ No valid English names found in text');
+    return null;
+  }
+  
+  // Return the longest name (usually the full name, not just initials)
+  const longestName = potentialNames.reduce((longest, current) => 
+    current.length > longest.length ? current : longest
+  );
+  
+  console.log(`[Verhoeff] ✓ Selected name: ${longestName}`);
+  return longestName;
 }
 
 /**

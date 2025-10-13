@@ -6,7 +6,7 @@ import { API_ENDPOINTS } from '../../config/api'
 const SecureLogin = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState({
     username: '',
-    enable2FA: false,
+    enable2FA: true,
     twoFactorCode: ''
   })
   const [error, setError] = useState('')
@@ -28,7 +28,7 @@ const SecureLogin = ({ onLoginSuccess }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: formData.username,
-          enable2FA: formData.enable2FA
+          enable2FA: true
         })
       })
 
@@ -133,7 +133,7 @@ const SecureLogin = ({ onLoginSuccess }) => {
               {requiresTwoFactor ? 'Verify 2FA' : 'Secure Session'}
             </h2>
             <p className="text-gray-400">
-              {requiresTwoFactor ? 'Scan QR code and enter the code' : 'Ephemeral authentication - No data stored'}
+              {requiresTwoFactor ? 'Scan QR code and enter the code' : 'Maximum security with mandatory 2FA'}
             </p>
           </div>
 
@@ -190,19 +190,12 @@ const SecureLogin = ({ onLoginSuccess }) => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 bg-slate-700/30 rounded-lg p-4">
-                <input
-                  type="checkbox"
-                  id="enable2FA"
-                  name="enable2FA"
-                  checked={formData.enable2FA}
-                  onChange={handleChange}
-                  className="w-5 h-5 text-secondary bg-slate-700 border-slate-600 rounded focus:ring-secondary focus:ring-2"
-                />
-                <label htmlFor="enable2FA" className="text-sm text-gray-300 flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-secondary" />
-                  Enable temporary 2FA for this session
-                </label>
+              <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                <Lock className="w-5 h-5 text-green-400" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-green-400">2FA Authentication Required</p>
+                  <p className="text-xs text-gray-400 mt-1">Secure mode requires two-factor authentication for maximum security</p>
+                </div>
               </div>
 
               <motion.button

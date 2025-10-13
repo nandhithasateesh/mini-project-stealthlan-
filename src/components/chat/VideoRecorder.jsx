@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Video, Square, Send, X, Camera } from 'lucide-react'
 
-const VideoRecorder = ({ onSendVideo, onCancel, mode }) => {
+const VideoRecorder = ({ onSendVideo, onCancel, mode, socket, roomId }) => {
   const [isRecording, setIsRecording] = useState(false)
   const [videoBlob, setVideoBlob] = useState(null)
   const [recordingTime, setRecordingTime] = useState(0)
@@ -103,6 +103,11 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode }) => {
       mediaRecorderRef.current.start()
       setIsRecording(true)
 
+      // Notify others that recording started
+      if (socket && roomId) {
+        socket.emit('recording:start', { roomId, type: 'video' })
+      }
+
       // Start timer
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1)
@@ -119,6 +124,11 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode }) => {
       setIsRecording(false)
       clearInterval(timerRef.current)
       stopCamera()
+      
+      // Notify others that recording stopped
+      if (socket && roomId) {
+        socket.emit('recording:stop', { roomId })
+      }
     }
   }
 
@@ -132,6 +142,9 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode }) => {
   const handleCancel = () => {
     if (isRecording) {
       stopRecording()
+    } else if (socket && roomId) {
+      // If not recording but closing, still notify
+      socket.emit('recording:stop', { roomId })
     }
     stopCamera()
     setVideoBlob(null)

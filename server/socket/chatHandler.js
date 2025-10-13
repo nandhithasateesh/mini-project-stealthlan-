@@ -381,6 +381,19 @@ export const setupChatHandlers = (io) => {
       socket.to(roomId).emit('user:stopped-typing', { userId: socket.userId });
     });
 
+    // Recording indicator
+    socket.on('recording:start', ({ roomId, type }) => {
+      socket.to(roomId).emit('user:recording', { 
+        userId: socket.userId, 
+        username: socket.username, 
+        type: type 
+      });
+    });
+
+    socket.on('recording:stop', ({ roomId }) => {
+      socket.to(roomId).emit('user:stopped-recording', { userId: socket.userId });
+    });
+
     // Screenshot alert
     socket.on('screenshot:taken', ({ roomId }) => {
       io.to(roomId).emit('screenshot:alert', {

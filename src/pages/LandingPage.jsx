@@ -12,15 +12,17 @@ const LandingPage = () => {
   const [showHelp, setShowHelp] = useState(false)
   const [settings, setSettings] = useState({
     language: 'en',
-    theme: 'dark'
+    theme: localStorage.getItem('theme') || 'dark'
   })
 
-  // Apply theme changes to document
+  // Apply theme changes to document and persist to localStorage
   useEffect(() => {
     if (settings.theme === 'dark') {
       document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
     } else {
       document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
     }
   }, [settings.theme])
 
@@ -71,7 +73,7 @@ const LandingPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-darker via-dark to-slate-900 dark:from-darker dark:via-dark dark:to-slate-900 from-blue-50 via-purple-50 to-pink-50 text-gray-900 dark:text-white overflow-hidden relative">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-darker dark:via-dark dark:to-slate-900 text-gray-900 dark:text-white overflow-hidden relative">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
@@ -114,13 +116,13 @@ const LandingPage = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setSettings(prev => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }))}
-            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
+            className="p-2 rounded-lg bg-slate-700/80 dark:bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600 dark:border-slate-600 backdrop-blur-sm"
             title={`Switch to ${settings.theme === 'dark' ? 'Light' : 'Dark'} Mode`}
           >
             {settings.theme === 'dark' ? (
               <Sun className="w-5 h-5 text-yellow-400" />
             ) : (
-              <Moon className="w-5 h-5 text-slate-300" />
+              <Moon className="w-5 h-5 text-slate-600" />
             )}
           </motion.button>
 
@@ -128,20 +130,20 @@ const LandingPage = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowHelp(true)}
-            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
+            className="p-2 rounded-lg bg-slate-700/80 dark:bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600 dark:border-slate-600 backdrop-blur-sm"
             title="Help & Guide"
           >
-            <HelpCircle className="w-5 h-5 text-gray-400" />
+            <HelpCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           </motion.button>
           
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowSettings(true)}
-            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
+            className="p-2 rounded-lg bg-slate-700/80 dark:bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600 dark:border-slate-600 backdrop-blur-sm"
             title="Settings"
           >
-            <Settings className="w-5 h-5 text-gray-400" />
+            <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           </motion.button>
         </div>
 
@@ -182,14 +184,14 @@ const LandingPage = () => {
 
           <motion.p
             variants={itemVariants}
-            className="text-xl md:text-2xl text-gray-300 mb-2"
+            className="text-xl md:text-2xl text-gray-600 dark:text-gray-300 mb-2"
           >
             AI-Powered Offline Chat System
           </motion.p>
 
           <motion.p
             variants={itemVariants}
-            className="text-md text-gray-400 max-w-2xl mx-auto"
+            className="text-md text-gray-500 dark:text-gray-400 max-w-2xl mx-auto"
           >
             Secure, private, and intelligent communication over your local network.
             No internet required. Your data, your control.
@@ -209,11 +211,11 @@ const LandingPage = () => {
             <motion.div
               key={idx}
               whileHover={{ scale: 1.05, y: -5 }}
-              className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl p-6 text-center"
+              className="bg-white/80 dark:bg-slate-800/50 backdrop-blur-sm border border-gray-200 dark:border-slate-700 rounded-xl p-6 text-center shadow-lg"
             >
               <feature.icon className="w-12 h-12 text-primary mx-auto mb-3" />
-              <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
-              <p className="text-sm text-gray-400">{feature.desc}</p>
+              <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">{feature.title}</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">{feature.desc}</p>
             </motion.div>
           ))}
         </motion.div>
@@ -232,15 +234,15 @@ const LandingPage = () => {
             onClick={() => navigate('/normal')}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-primary rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-xl" />
-            <div className="relative bg-slate-800/70 backdrop-blur-md border-2 border-slate-700 group-hover:border-primary rounded-2xl p-8 transition-all duration-300">
+            <div className="relative bg-white/90 dark:bg-slate-800/70 backdrop-blur-md border-2 border-gray-200 dark:border-slate-700 group-hover:border-primary rounded-2xl p-8 transition-all duration-300 shadow-xl">
               <div className="flex items-center justify-between mb-4">
                 <MessageSquare className="w-16 h-16 text-primary" />
-                <Eye className="w-8 h-8 text-gray-400" />
+                <Eye className="w-8 h-8 text-gray-500 dark:text-gray-400" />
               </div>
 
-              <h2 className="text-3xl font-bold mb-3 text-white">Normal Mode</h2>
+              <h2 className="text-3xl font-bold mb-3 text-gray-900 dark:text-white">Normal Mode</h2>
 
-              <p className="text-gray-300 mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-6">
                 Perfect for casual conversations and office communication. All messages,
                 rooms, and preferences are stored locally in JSON format.
               </p>
@@ -253,7 +255,7 @@ const LandingPage = () => {
                   'File sharing & storage',
                   'AI chat assistance'
                 ].map((feature, idx) => (
-                  <li key={idx} className="flex items-center text-sm text-gray-400">
+                  <li key={idx} className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                     <div className="w-1.5 h-1.5 bg-primary rounded-full mr-2" />
                     {feature}
                   </li>
@@ -279,15 +281,15 @@ const LandingPage = () => {
             onClick={() => navigate('/secure')}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-secondary rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-xl" />
-            <div className="relative bg-slate-800/70 backdrop-blur-md border-2 border-slate-700 group-hover:border-secondary rounded-2xl p-8 transition-all duration-300">
+            <div className="relative bg-white/90 dark:bg-slate-800/70 backdrop-blur-md border-2 border-gray-200 dark:border-slate-700 group-hover:border-secondary rounded-2xl p-8 transition-all duration-300 shadow-xl">
               <div className="flex items-center justify-between mb-4">
                 <Shield className="w-16 h-16 text-secondary" />
-                <EyeOff className="w-8 h-8 text-gray-400" />
+                <EyeOff className="w-8 h-8 text-gray-500 dark:text-gray-400" />
               </div>
 
-              <h2 className="text-3xl font-bold mb-3 text-white">Secure Mode</h2>
+              <h2 className="text-3xl font-bold mb-3 text-gray-900 dark:text-white">Secure Mode</h2>
 
-              <p className="text-gray-300 mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-6">
                 Maximum privacy for sensitive communications. Messages and files
                 vanish after viewing. Nothing is stored permanently.
               </p>
@@ -300,7 +302,7 @@ const LandingPage = () => {
                   'View-once media',
                   'Anonymous sessions'
                 ].map((feature, idx) => (
-                  <li key={idx} className="flex items-center text-sm text-gray-400">
+                  <li key={idx} className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                     <div className="w-1.5 h-1.5 bg-secondary rounded-full mr-2" />
                     {feature}
                   </li>
@@ -321,7 +323,7 @@ const LandingPage = () => {
         {/* Footer */}
         <motion.div
           variants={itemVariants}
-          className="mt-16 text-center text-gray-500 text-sm"
+          className="mt-16 text-center text-gray-500 dark:text-gray-500 text-sm"
         >
           <p>🔒 All communication stays on your local network</p>
           <p className="mt-2">Built with React • Powered by AI • Secured by Design</p>

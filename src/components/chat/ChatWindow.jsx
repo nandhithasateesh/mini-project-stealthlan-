@@ -15,6 +15,7 @@ const ChatWindow = ({ socket, room, user, mode }) => {
   const [inputMessage, setInputMessage] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [typingUsers, setTypingUsers] = useState([])
+  const [recordingUsers, setRecordingUsers] = useState([])
   const [onlineUsers, setOnlineUsers] = useState([])
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showAudioRecorder, setShowAudioRecorder] = useState(false)
@@ -70,12 +71,27 @@ const ChatWindow = ({ socket, room, user, mode }) => {
     })
 
     // Typing indicators
-    socket.on('user:typing', ({ username }) => {
-      setTypingUsers(prev => [...new Set([...prev, username])])
+    socket.on('user:typing', ({ userId, username }) => {
+      setTypingUsers(prev => {
+        const filtered = prev.filter(u => u.userId !== userId)
+        return [...filtered, { userId, username }]
+      })
     })
 
     socket.on('user:stopped-typing', ({ userId }) => {
-      setTypingUsers(prev => prev.filter(u => u !== userId))
+      setTypingUsers(prev => prev.filter(u => u.userId !== userId))
+    })
+
+    // Recording indicators
+    socket.on('user:recording', ({ userId, username, type }) => {
+      setRecordingUsers(prev => {
+        const filtered = prev.filter(u => u.userId !== userId)
+        return [...filtered, { userId, username, type }]
+      })
+    })
+
+    socket.on('user:stopped-recording', ({ userId }) => {
+      setRecordingUsers(prev => prev.filter(u => u.userId !== userId))
     })
 
     // Online users (global - kept for compatibility)
@@ -129,6 +145,8 @@ const ChatWindow = ({ socket, room, user, mode }) => {
       socket.off('message:reaction')
       socket.off('user:typing')
       socket.off('user:stopped-typing')
+      socket.off('user:recording')
+      socket.off('user:stopped-recording')
       socket.off('users:online')
       socket.off('room:online-users')
       socket.off('screenshot:alert')
@@ -442,7 +460,7 @@ const ChatWindow = ({ socket, room, user, mode }) => {
                 exit={{ opacity: 0, scale: 0.8 }}
                 className={`flex ${message.userId === user.id ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`max-w-md ${message.userId === user.id ? 'items-end' : 'items-start'} flex flex-col`}>
+                <div className={`max-w-[90%] sm:max-w-md ${message.userId === user.id ? 'items-end' : 'items-start'} flex flex-col`}>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs text-gray-400">{message.username}</span>
                     <span className="text-xs text-gray-500">{formatTime(message.timestamp)}</span>
@@ -461,7 +479,7 @@ const ChatWindow = ({ socket, room, user, mode }) => {
                       <img 
                         src={message.fileUrl.startsWith('data:') ? message.fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${message.fileUrl}`} 
                         alt={message.fileName}
-                        className="max-w-sm rounded-lg mb-2 cursor-pointer"
+                        className="max-w-full sm:max-w-sm rounded-lg mb-2 cursor-pointer"
                         onClick={() => {
                           if (message.fileUrl.startsWith('data:')) {
                             // Base64 image - open in new tab
@@ -495,7 +513,7 @@ const ChatWindow = ({ socket, room, user, mode }) => {
                       <video 
                         controls 
                         src={message.fileUrl.startsWith('data:') ? message.fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${message.fileUrl}`}
-                        className="max-w-sm rounded-lg mb-2"
+                        className="max-w-full sm:max-w-sm rounded-lg mb-2"
                       />
                       <div className="flex items-center gap-2">
                         <p className="text-sm flex-1">{message.content}</p>
@@ -576,11 +594,11 @@ const ChatWindow = ({ socket, room, user, mode }) => {
                   {/* Message Actions */}
                   <div className="absolute -top-8 right-0 hidden group-hover:flex gap-1 bg-slate-700 rounded-lg p-1">
                     <button
-                      onClick={() => setShowEmojiPicker(message.id)}
-                      className="p-1 hover:bg-slate-600 rounded"
-                      title="React"
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      title="Emoji"
                     >
-                      <Smile className="w-4 h-4 text-gray-300" />
+                      <Smile className="w-5 h-5 text-gray-400" />
                     </button>
                     {mode === 'normal' && (
                       <button
@@ -633,7 +651,19 @@ const ChatWindow = ({ socket, room, user, mode }) => {
             animate={{ opacity: 1 }}
             className="text-sm text-gray-400 italic"
           >
-            {typingUsers.join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
+            {typingUsers.map(u => u.username).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
+          </motion.div>
+        )}
+
+        {/* Recording Indicator */}
+        {recordingUsers.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-sm text-red-400 italic flex items-center gap-2"
+          >
+            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+            {recordingUsers.map(u => `${u.username} (${u.type})`).join(', ')}
           </motion.div>
         )}
 
@@ -671,6 +701,8 @@ const ChatWindow = ({ socket, room, user, mode }) => {
             onSendAudio={handleSendAudio}
             onCancel={() => setShowAudioRecorder(false)}
             mode={mode}
+            socket={socket}
+            roomId={room.id}
           />
         )}
 
@@ -680,6 +712,8 @@ const ChatWindow = ({ socket, room, user, mode }) => {
             onSendVideo={handleSendVideo}
             onCancel={() => setShowVideoRecorder(false)}
             mode={mode}
+            socket={socket}
+            roomId={room.id}
           />
         )}
 
@@ -707,11 +741,11 @@ const ChatWindow = ({ socket, room, user, mode }) => {
         />
 
         <div className="flex items-center gap-2">
-          <div className="flex gap-1">
+          <div className="flex gap-2 sm:gap-1">
             <button 
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50" 
+              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
               title="Attach File"
             >
               <Paperclip className="w-5 h-5 text-gray-400" />
@@ -719,15 +753,15 @@ const ChatWindow = ({ socket, room, user, mode }) => {
             <button 
               onClick={() => document.getElementById('image-input')?.click()}
               disabled={uploading}
-              className="p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50" 
-              title="Send Image"
+              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
+              title="Upload Image"
             >
               <Image className="w-5 h-5 text-gray-400" />
             </button>
             <button 
               onClick={() => setShowVideoRecorder(!showVideoRecorder)}
               disabled={uploading}
-              className="p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50" 
+              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
               title="Record Video"
             >
               <Video className={`w-5 h-5 ${showVideoRecorder ? 'text-red-500' : 'text-gray-400'}`} />
@@ -735,7 +769,7 @@ const ChatWindow = ({ socket, room, user, mode }) => {
             <button 
               onClick={() => setShowAudioRecorder(!showAudioRecorder)}
               disabled={uploading}
-              className="p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50" 
+              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
               title="Record Audio"
             >
               <Mic className={`w-5 h-5 ${showAudioRecorder ? 'text-red-500' : 'text-gray-400'}`} />
@@ -758,15 +792,14 @@ const ChatWindow = ({ socket, room, user, mode }) => {
             className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
           />
 
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={handleSendMessage}
             disabled={!inputMessage.trim()}
-            className="p-2 bg-primary rounded-lg hover:bg-primary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-primary hover:bg-primary/80 text-white p-3 sm:p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] flex items-center justify-center"
+            title="Send"
           >
-            <Send className="w-5 h-5 text-white" />
-          </motion.button>
+            <Send className="w-5 h-5" />
+          </button>
         </div>
       </div>
     </div>

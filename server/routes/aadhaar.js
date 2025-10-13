@@ -84,7 +84,9 @@ router.post('/verify', upload.single('aadhaarImage'), async (req, res) => {
         if (info.status === 'recognizing text') {
           console.log(`[Aadhaar] OCR Progress: ${Math.round(info.progress * 100)}%`);
         }
-      }
+      },
+      tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz /:.-',
     });
 
     console.log('[Aadhaar] OCR completed. Extracted text length:', text.length);
