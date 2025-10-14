@@ -45,12 +45,12 @@ const ALL_ALLOWED_TYPES = [
   ...ALLOWED_FILE_TYPES.document
 ];
 
-// File size limits (in bytes)
+// File size limits (in bytes) - MAXIMIZED
 const FILE_SIZE_LIMITS = {
-  image: 5 * 1024 * 1024,      // 5MB
-  video: 50 * 1024 * 1024,     // 50MB
-  audio: 10 * 1024 * 1024,     // 10MB
-  document: 10 * 1024 * 1024   // 10MB
+  image: 50 * 1024 * 1024,      // 50MB (increased from 5MB)
+  video: 500 * 1024 * 1024,     // 500MB (increased from 50MB)
+  audio: 100 * 1024 * 1024,     // 100MB (increased from 10MB)
+  document: 100 * 1024 * 1024   // 100MB (increased from 10MB)
 };
 
 // Configure multer to store files in memory (not on disk)
@@ -70,7 +70,7 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024 // Max 50MB (will be checked per type)
+    fileSize: 500 * 1024 * 1024 // Max 500MB (increased to match video limit)
   }
 });
 

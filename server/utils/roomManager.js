@@ -11,7 +11,7 @@ const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 
 // In-memory storage for secure mode
-const secureRooms = new Map();
+export const secureRooms = new Map();
 const secureMessages = new Map();
 
 // Initialize files
@@ -45,7 +45,7 @@ export const writeRooms = (rooms) => {
 
 export const createRoom = (roomData, mode = 'normal') => {
   const room = {
-    id: uuidv4(),
+    id: roomData.id || uuidv4(), // Use provided ID or generate new one
     name: roomData.name,
     description: roomData.description || '',
     createdBy: roomData.createdBy,

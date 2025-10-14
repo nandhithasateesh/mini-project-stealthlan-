@@ -66,5 +66,5 @@ httpServer.listen(config.PORT, '0.0.0.0', () => {
   console.log(`📡 Accessible on LAN at http://0.0.0.0:${config.PORT}`);
   console.log(`💬 Socket.io ready for real-time chat`);
   console.log(`🔒 Environment: ${config.NODE_ENV}`);
-  console.log(`🛡️  CORS allowed origins: ${config.ALLOWED_ORIGINS.join(', ')}`);
+  console.log(`🛡️  CORS allowed origins: ${Array.isArray(config.ALLOWED_ORIGINS) ? config.ALLOWED_ORIGINS.join(', ') : 'dynamic (localhost + LAN)'}`);
 });

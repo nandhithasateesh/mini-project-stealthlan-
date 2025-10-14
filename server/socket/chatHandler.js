@@ -15,13 +15,19 @@ import {
   readRooms,
   writeRooms,
   readMessages,
-  deleteMessagesForUser
+  deleteMessagesForUser,
+  secureRooms
 } from '../utils/roomManager.js';
 import { validateSocketData } from '../middleware/validation.js';
 
 // Track online users
 const onlineUsers = new Map();
 const typingUsers = new Map();
+// Track rooms with timers for auto-deletion when all users go offline
+const roomOfflineTimers = new Map();
+// Track left users and failed attempts per room
+const roomLeftUsers = new Map(); // { roomId: [{ username, leftAt }] }
+const roomFailedAttempts = new Map(); // { roomId: [{ username, count, lastAttempt, reason }] }
 
 export const setupChatHandlers = (io) => {
   io.on('connection', (socket) => {
@@ -47,6 +53,257 @@ export const setupChatHandlers = (io) => {
       // Acknowledge that user:join is complete
       if (callback) {
         callback({ success: true, userId, username, mode });
+      }
+    });
+
+    // Secure Room: Create
+    socket.on('secure-room:create', (data, callback) => {
+      try {
+        const { roomId, username, password, timeLimit, burnAfterReading } = data;
+
+        // Validate all mandatory fields
+        if (!roomId || !username || !password || !timeLimit) {
+          return callback({ success: false, error: 'All fields are required' });
+        }
+
+        if (password.length < 6) {
+          return callback({ success: false, error: 'Password must be at least 6 characters' });
+        }
+
+        if (timeLimit <= 0) {
+          return callback({ success: false, error: 'Time limit must be greater than 0' });
+        }
+
+        // Check if room ID already exists
+        const existingRoom = getRoom(roomId, 'secure');
+        if (existingRoom) {
+          return callback({ success: false, error: 'Room ID already exists. Please choose a different ID.' });
+        }
+
+        // Create secure room
+        const roomData = {
+          id: roomId, // Use custom room ID
+          name: `Secure-${roomId}`,
+          createdBy: username,
+          password: password,
+          timeLimit: parseInt(timeLimit),
+          burnAfterReading: burnAfterReading || false
+        };
+
+        const room = createRoom(roomData, 'secure');
+        
+        // Set socket info
+        socket.userId = username;
+        socket.username = username;
+        socket.mode = 'secure';
+        
+        // Join the room
+        socket.join(room.id);
+        
+        // Add system message: Room created
+        const creationMessage = addMessage(room.id, {
+          userId: 'system',
+          username: 'System',
+          content: `🎉 Room created by ${username}`,
+          type: 'system',
+          isRoomCreation: true
+        }, 'secure');
+        
+        // Start room expiry timer
+        setTimeout(() => {
+          const roomStillExists = getRoom(room.id, 'secure');
+          if (roomStillExists) {
+            deleteRoom(room.id, 'secure');
+            io.to(room.id).emit('room:expired', { roomId: room.id });
+            io.emit('room:removed', { roomId: room.id });
+            console.log(`[SECURE] Room ${room.id} expired after ${timeLimit} minutes`);
+          }
+        }, timeLimit * 60000);
+
+        console.log(`[SECURE-CREATE] Room created: ${room.name} (ID: ${room.id}) by ${username}`);
+        
+        callback({ success: true, room });
+      } catch (error) {
+        console.error('[SECURE-CREATE ERROR]', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Secure Room: Join
+    socket.on('secure-room:join', async (data, callback) => {
+      try {
+        console.log('[SECURE-JOIN] Received join request:', data);
+
+        if (!callback || typeof callback !== 'function') {
+          console.error('[SECURE-JOIN ERROR] Callback is not a function');
+          return;
+        }
+
+        const { roomId, username, password } = data;
+
+        // Validate all mandatory fields
+        if (!roomId || !username || !password) {
+          console.log('[SECURE-JOIN ERROR] Missing required fields');
+          return callback({ success: false, error: 'All fields are required' });
+        }
+
+        console.log(`[SECURE-JOIN] User ${username} trying to join room ${roomId}`);
+        
+        const room = getRoom(roomId, 'secure');
+        
+        if (!room) {
+          console.log(`[SECURE-JOIN ERROR] Room ${roomId} not found in secure rooms`);
+          console.log(`[SECURE-JOIN] Available secure rooms:`, Array.from(secureRooms.keys()));
+          return callback({ success: false, error: `Room "${roomId}" not found` });
+        }
+
+        console.log(`[SECURE-JOIN] Room found:`, { id: room.id, name: room.name, hasPassword: !!room.password });
+
+        // Verify password
+        if (room.password !== password) {
+          console.log(`[SECURE-JOIN ERROR] Invalid password for room ${roomId}`);
+          
+          // Track failed attempt
+          if (!roomFailedAttempts.has(roomId)) {
+            roomFailedAttempts.set(roomId, []);
+          }
+          const attempts = roomFailedAttempts.get(roomId);
+          const existing = attempts.find(a => a.username === username);
+          
+          if (existing) {
+            existing.count++;
+            existing.lastAttempt = new Date();
+            existing.reason = 'Invalid password';
+          } else {
+            attempts.push({
+              username,
+              count: 1,
+              lastAttempt: new Date(),
+              reason: 'Invalid password'
+            });
+          }
+          
+          // Emit dashboard update to all users in room
+          io.to(roomId).emit('dashboard:update', {
+            activeUsers: [],
+            leftUsers: roomLeftUsers.get(roomId) || [],
+            failedAttempts: attempts
+          });
+          
+          return callback({ success: false, error: 'Invalid password' });
+        }
+
+        console.log(`[SECURE-JOIN] Password verified for room ${roomId}`);
+
+        // Check if room expired
+        if (room.expiresAt && new Date(room.expiresAt) < new Date()) {
+          deleteRoom(roomId, 'secure');
+          return callback({ success: false, error: 'Room has expired' });
+        }
+
+        // Cancel offline deletion timer if it exists
+        if (roomOfflineTimers.has(roomId)) {
+          clearTimeout(roomOfflineTimers.get(roomId));
+          roomOfflineTimers.delete(roomId);
+          console.log(`[SECURE-JOIN] Cancelled offline timer for room ${roomId}`);
+        }
+
+        // Cancel host-disconnect timer if host is reconnecting
+        if (roomOfflineTimers.has(`host-disconnect-${roomId}`)) {
+          clearTimeout(roomOfflineTimers.get(`host-disconnect-${roomId}`));
+          roomOfflineTimers.delete(`host-disconnect-${roomId}`);
+          console.log(`[SECURE-JOIN] Host ${username} reconnected. Cancelled host-disconnect timer for room ${roomId}`);
+        }
+
+        // Set socket info
+        socket.userId = username;
+        socket.username = username;
+        socket.mode = 'secure';
+
+        // Join the room
+        socket.join(roomId);
+        addMemberToRoom(roomId, username, 'secure');
+
+        // Add system message for user joining (visible to everyone)
+        const joinMessage = addMessage(roomId, {
+          userId: 'system',
+          username: 'System',
+          content: `👋 ${username} joined the room`,
+          type: 'system',
+          isUserJoin: true
+        }, 'secure');
+
+        // Get messages AFTER adding the join message (so joining user gets it)
+        const messages = getMessages(roomId, 'secure');
+
+        // Notify OTHERS about the join (not the joining user - they get it in messages array)
+        socket.broadcast.to(roomId).emit('user:joined', {
+          userId: username,
+          username: username,
+          message: joinMessage
+        });
+
+        // Get online users in this room
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        const roomOnlineUsers = socketsInRoom.map(s => ({
+          userId: s.userId,
+          username: s.username,
+          socketId: s.id
+        })).filter(u => u.userId);
+
+        io.to(roomId).emit('room:online-users', roomOnlineUsers);
+
+        console.log(`[SECURE-JOIN SUCCESS] User ${username} joined room ${room.name}. ${roomOnlineUsers.length} users online`);
+        callback({ success: true, room, messages });
+      } catch (error) {
+        console.error('[SECURE-JOIN ERROR]', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Extend room time (Secure mode only)
+    socket.on('secure-room:extend-time', (data, callback) => {
+      try {
+        const { roomId, minutesToAdd } = data;
+
+        if (!roomId || !minutesToAdd) {
+          return callback({ success: false, error: 'Room ID and minutes to add are required' });
+        }
+
+        if (minutesToAdd <= 0 || minutesToAdd > 60) {
+          return callback({ success: false, error: 'Minutes must be between 1 and 60' });
+        }
+
+        const room = getRoom(roomId, 'secure');
+        
+        if (!room) {
+          return callback({ success: false, error: 'Room not found' });
+        }
+
+        // Only room creator can extend time
+        if (room.createdBy !== socket.username) {
+          return callback({ success: false, error: 'Only the room creator can extend time' });
+        }
+
+        // Extend the expiration time
+        const currentExpiry = new Date(room.expiresAt).getTime();
+        const newExpiry = new Date(currentExpiry + (minutesToAdd * 60000));
+        room.expiresAt = newExpiry.toISOString();
+        room.timeLimit = room.timeLimit + minutesToAdd;
+
+        // Notify all users in the room
+        io.to(roomId).emit('room:time-extended', {
+          roomId,
+          newExpiresAt: room.expiresAt,
+          minutesAdded: minutesToAdd,
+          extendedBy: socket.username
+        });
+
+        console.log(`[SECURE-EXTEND] Room ${roomId} extended by ${minutesToAdd} minutes by ${socket.username}`);
+        callback({ success: true, newExpiresAt: room.expiresAt });
+      } catch (error) {
+        console.error('[SECURE-EXTEND ERROR]', error);
+        callback({ success: false, error: error.message });
       }
     });
 
@@ -168,18 +425,77 @@ export const setupChatHandlers = (io) => {
         const room = getRoom(roomId, socket.mode);
         
         if (!room) {
-          return callback({ success: false, error: 'Room not found' });
+          if (callback && typeof callback === 'function') {
+            return callback({ success: false, error: 'Room not found' });
+          }
+          return;
         }
+
+        // Check if the leaving user is the host/creator
+        const isHost = room.createdBy === socket.username || room.createdBy === socket.userId;
+
+        if (isHost) {
+          // Host is leaving - delete room and kick everyone out
+          console.log(`[HOST-LEAVE] Host ${socket.username} leaving room ${roomId}. Deleting room...`);
+          
+          // Notify all members in the room BEFORE they leave
+          io.to(roomId).emit('room:deleted-by-host', {
+            roomId: roomId,
+            hostName: socket.username,
+            message: 'Room has been deleted because the host left'
+          });
+
+          // Cancel any existing timers
+          if (roomOfflineTimers.has(roomId)) {
+            clearTimeout(roomOfflineTimers.get(roomId));
+            roomOfflineTimers.delete(roomId);
+          }
+
+          // Delete the room
+          deleteRoom(roomId, socket.mode);
+          io.emit('room:removed', { roomId });
+
+          console.log(`[HOST-LEAVE] Room ${roomId} deleted by host ${socket.username}`);
+          
+          if (callback && typeof callback === 'function') {
+            callback({ success: true, hostLeft: true });
+          }
+          return;
+        }
+
+        // Normal member leaving (not host)
+        // Track left user (secure mode only)
+        if (socket.mode === 'secure') {
+          if (!roomLeftUsers.has(roomId)) {
+            roomLeftUsers.set(roomId, []);
+          }
+          roomLeftUsers.get(roomId).push({
+            username: socket.username,
+            leftAt: new Date(),
+            reason: 'Left voluntarily'
+          });
+        }
+        
+        // Add system message for user leaving
+        const leaveMessage = addMessage(roomId, {
+          userId: 'system',
+          username: 'System',
+          content: `👋 ${socket.username} left the room`,
+          type: 'system',
+          isUserLeave: true
+        }, socket.mode);
+
+        // Notify others BEFORE removing user
+        // Use io.to instead of socket.broadcast because user needs to leave first
+        socket.to(roomId).emit('user:left', {
+          userId: socket.userId,
+          username: socket.username,
+          message: leaveMessage
+        });
 
         // Remove user from room members
         removeMemberFromRoom(roomId, socket.userId, socket.mode);
         socket.leave(roomId);
-        
-        // Notify others
-        io.to(roomId).emit('user:left', {
-          userId: socket.userId,
-          username: socket.username
-        });
 
         // Update online users count
         const socketsInRoom = await io.in(roomId).fetchSockets();
@@ -190,11 +506,34 @@ export const setupChatHandlers = (io) => {
         })).filter(u => u.userId);
         io.to(roomId).emit('room:online-users', roomOnlineUsers);
 
-        // Don't delete room when members leave - rooms persist until expiry time
+        // In SECURE mode: If all users leave, start 10-minute deletion timer
+        if (socket.mode === 'secure' && roomOnlineUsers.length === 0) {
+          console.log(`[SECURE] Room ${roomId} is now empty. Starting 10-minute deletion timer...`);
+          
+          const timerId = setTimeout(() => {
+            // Check again if room still exists and is still empty
+            const socketsInRoomNow = io.sockets.adapter.rooms.get(roomId);
+            if (!socketsInRoomNow || socketsInRoomNow.size === 0) {
+              const roomStillExists = getRoom(roomId, 'secure');
+              if (roomStillExists) {
+                deleteRoom(roomId, 'secure');
+                io.emit('room:removed', { roomId });
+                console.log(`[SECURE] Room ${roomId} deleted after 10 minutes of inactivity`);
+              }
+            }
+            roomOfflineTimers.delete(roomId);
+          }, 10 * 60 * 1000); // 10 minutes
+          
+          roomOfflineTimers.set(roomId, timerId);
+        }
 
-        callback({ success: true });
+        if (callback && typeof callback === 'function') {
+          callback({ success: true });
+        }
       } catch (error) {
-        callback({ success: false, error: error.message });
+        if (callback && typeof callback === 'function') {
+          callback({ success: false, error: error.message });
+        }
       }
     });
 
@@ -262,6 +601,12 @@ export const setupChatHandlers = (io) => {
     // Send message
     socket.on('message:send', (data, callback) => {
       try {
+        // Validate callback
+        if (!callback || typeof callback !== 'function') {
+          console.error('[MESSAGE:SEND] No callback provided');
+          return;
+        }
+
         // Validate input
         const validation = validateSocketData.messageSend(data);
         if (!validation.isValid) {
@@ -298,9 +643,13 @@ export const setupChatHandlers = (io) => {
 
         io.to(roomId).emit('message:new', message);
 
+        console.log(`[MESSAGE:SEND] Message sent to room ${roomId} by ${socket.username}`);
         callback({ success: true, message });
       } catch (error) {
-        callback({ success: false, error: error.message });
+        console.error('[MESSAGE:SEND ERROR]', error);
+        if (callback && typeof callback === 'function') {
+          callback({ success: false, error: error.message });
+        }
       }
     });
 
@@ -412,6 +761,128 @@ export const setupChatHandlers = (io) => {
       });
     });
 
+    // Dashboard: Request room data (Secure Mode - HOST ONLY)
+    socket.on('dashboard:request', async ({ roomId }, callback) => {
+      try {
+        console.log(`[DASHBOARD] Request for room ${roomId} by ${socket.username}`);
+        
+        const room = getRoom(roomId, 'secure');
+        if (!room) {
+          return callback({ success: false, error: 'Room not found' });
+        }
+        
+        // Check if requester is the host
+        if (room.createdBy !== socket.username && room.createdBy !== socket.userId) {
+          console.log(`[DASHBOARD] Access denied for ${socket.username} - not the host`);
+          return callback({ success: false, error: 'Only the host can access the dashboard' });
+        }
+        
+        // Get active users in room
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        const activeUsers = socketsInRoom.map(s => ({
+          userId: s.userId,
+          username: s.username,
+          socketId: s.id
+        })).filter(u => u.userId);
+        
+        // Get left users
+        const leftUsers = roomLeftUsers.get(roomId) || [];
+        
+        // Get failed attempts
+        const failedAttempts = roomFailedAttempts.get(roomId) || [];
+        
+        console.log(`[DASHBOARD] Sending data to host ${socket.username}`);
+        callback({
+          success: true,
+          data: {
+            activeUsers,
+            leftUsers,
+            failedAttempts
+          }
+        });
+      } catch (error) {
+        console.error('[DASHBOARD] Error:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // User: Kick (Secure Mode - Host only)
+    socket.on('user:kick', async ({ roomId, userId, username }, callback) => {
+      try {
+        console.log(`[KICK] ${socket.username} trying to kick ${username} from room ${roomId}`);
+        
+        const room = getRoom(roomId, 'secure');
+        if (!room) {
+          return callback({ success: false, error: 'Room not found' });
+        }
+        
+        // Check if requester is the host
+        if (room.createdBy !== socket.username && room.createdBy !== socket.userId) {
+          return callback({ success: false, error: 'Only the host can kick members' });
+        }
+        
+        // Find the user's socket
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        const targetSocket = socketsInRoom.find(s => s.userId === userId || s.username === username);
+        
+        if (!targetSocket) {
+          return callback({ success: false, error: 'User not found in room' });
+        }
+        
+        // Remove user from room
+        removeMemberFromRoom(roomId, userId, 'secure');
+        
+        // Notify the kicked user
+        targetSocket.emit('user:kicked', {
+          reason: `You were kicked by ${socket.username}`
+        });
+        
+        // Force disconnect from room
+        targetSocket.leave(roomId);
+        
+        // Track as left user
+        if (!roomLeftUsers.has(roomId)) {
+          roomLeftUsers.set(roomId, []);
+        }
+        roomLeftUsers.get(roomId).push({
+          username: username,
+          leftAt: new Date(),
+          reason: 'Kicked by host'
+        });
+        
+        // Notify others in room
+        io.to(roomId).emit('user:left', {
+          userId: userId,
+          username: username,
+          message: {
+            id: `kick-${Date.now()}`,
+            type: 'system',
+            content: `⚠️ ${username} was kicked by ${socket.username}`,
+            timestamp: new Date().toISOString()
+          }
+        });
+        
+        // Update dashboard for all users in room
+        const socketsAfter = await io.in(roomId).fetchSockets();
+        const activeUsers = socketsAfter.map(s => ({
+          userId: s.userId,
+          username: s.username
+        })).filter(u => u.userId);
+        
+        io.to(roomId).emit('dashboard:update', {
+          activeUsers,
+          leftUsers: roomLeftUsers.get(roomId) || [],
+          failedAttempts: roomFailedAttempts.get(roomId) || []
+        });
+        
+        console.log(`[KICK] ${username} kicked from room ${roomId} by ${socket.username}`);
+        callback({ success: true });
+      } catch (error) {
+        console.error('[KICK] Error:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
     // Dashboard statistics (Normal Mode only)
     socket.on('dashboard:get-stats', (callback) => {
       try {
@@ -475,6 +946,15 @@ export const setupChatHandlers = (io) => {
         onlineUsers.delete(socket.userId);
         io.emit('users:online', Array.from(onlineUsers.values()));
         
+        // NOTE: Host disconnect auto-delete is DISABLED to prevent false triggers
+        // Room will only be deleted when host explicitly clicks "Leave Room" button
+        // or when the time limit expires
+        
+        // This prevents issues with:
+        // - Page refreshes triggering deletion
+        // - Component re-renders causing brief disconnects
+        // - Members seeing "room deleted" when host is still there
+        
         // Clear typing indicators and update room online counts
         for (const [key, value] of typingUsers.entries()) {
           if (key.includes(socket.userId)) {
@@ -490,26 +970,33 @@ export const setupChatHandlers = (io) => {
                 socketId: s.id
               })).filter(u => u.userId);
               io.to(value.roomId).emit('room:online-users', roomOnlineUsers);
+              
+              // In SECURE mode: If room becomes empty, start 10-minute deletion timer
+              // (Only if room still exists and wasn't deleted by host disconnect)
+              const roomStillExists = getRoom(value.roomId, socket.mode);
+              if (socket.mode === 'secure' && roomOnlineUsers.length === 0 && roomStillExists) {
+                console.log(`[SECURE] Room ${value.roomId} is now empty after disconnect. Starting 10-minute deletion timer...`);
+                
+                const timerId = setTimeout(() => {
+                  // Check again if room still exists and is still empty
+                  const socketsInRoomNow = io.sockets.adapter.rooms.get(value.roomId);
+                  if (!socketsInRoomNow || socketsInRoomNow.size === 0) {
+                    const roomStillExists = getRoom(value.roomId, 'secure');
+                    if (roomStillExists) {
+                      deleteRoom(value.roomId, 'secure');
+                      io.emit('room:removed', { roomId: value.roomId });
+                      console.log(`[SECURE] Room ${value.roomId} deleted after 10 minutes of inactivity`);
+                    }
+                  }
+                  roomOfflineTimers.delete(value.roomId);
+                }, 10 * 60 * 1000); // 10 minutes
+                
+                roomOfflineTimers.set(value.roomId, timerId);
+              }
             } catch (err) {
               console.error('Error updating room online users:', err);
             }
           }
-        }
-
-        // Delete all secure mode rooms and messages created by this user
-        if (socket.mode === 'secure') {
-          // Delete all messages from rooms created by this user
-          deleteMessagesForUser(socket.userId, 'secure');
-          
-          // Delete all rooms created by this user
-          const rooms = getRooms('secure');
-          rooms.forEach(room => {
-            if (room.createdBy === socket.userId) {
-              deleteRoom(room.id, 'secure');
-              io.emit('room:removed', { roomId: room.id });
-              console.log(`Deleted secure room on disconnect: ${room.name} (${room.id})`);
-            }
-          });
         }
       }
     });
