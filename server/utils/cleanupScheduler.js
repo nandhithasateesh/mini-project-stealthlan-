@@ -88,7 +88,7 @@ const deleteExpiredMessages = (roomId, room, messages) => {
 /**
  * Clean up expired rooms and their data
  */
-export const cleanupExpiredRooms = () => {
+export const cleanupExpiredRooms = (io = null) => {
   console.log('[Cleanup] Starting cleanup check...');
   
   const rooms = readRooms();
@@ -103,7 +103,25 @@ export const cleanupExpiredRooms = () => {
   const activeRooms = rooms.filter(room => {
     // Check if room has expired
     if (room.expiresAt && new Date(room.expiresAt) < now) {
-      console.log(`[Cleanup] Room expired: ${room.name} (expired at ${room.expiresAt})`);
+      console.log(`[Cleanup] 🗑️ Room expired: ${room.name} (ID: ${room.id}) - expired at ${room.expiresAt}`);
+      console.log(`[Cleanup] 🧹 Deleting all data for room: ${room.name}`);
+      
+      // Notify all clients that the room has expired and kick them out
+      if (io) {
+        // First notify all users in the room that it has expired
+        io.to(room.id).emit('room:expired', { roomId: room.id, roomName: room.name });
+        
+        // Then notify all clients to remove the room from their lists
+        io.emit('room:removed', { roomId: room.id, roomName: room.name });
+        
+        // Force all users to leave the room
+        io.in(room.id).socketsLeave(room.id);
+        
+        console.log(`[Cleanup] 📢 Notified all clients about expired room: ${room.name}`);
+        console.log(`[Cleanup] 👥 Kicked all users out of expired room: ${room.name}`);
+      } else {
+        console.log(`[Cleanup] ⚠️ No socket.io instance available for notifications`);
+      }
       
       // Delete all files associated with this room
       const filesDeleted = deleteRoomFiles(room.id, messages);
@@ -141,18 +159,18 @@ export const cleanupExpiredRooms = () => {
 
 /**
  * Start the cleanup scheduler
- * Runs every 5 minutes
+ * Runs every 1 minute for faster room expiry detection
  */
-export const startCleanupScheduler = () => {
-  console.log('[Cleanup] Starting cleanup scheduler (runs every 5 minutes)');
+export const startCleanupScheduler = (io = null) => {
+  console.log('[Cleanup] Starting cleanup scheduler (runs every 1 minute)');
   
   // Run immediately on startup
-  cleanupExpiredRooms();
+  cleanupExpiredRooms(io);
   
-  // Then run every 5 minutes
+  // Then run every 1 minute for faster expiry detection
   setInterval(() => {
-    cleanupExpiredRooms();
-  }, 5 * 60 * 1000); // 5 minutes
+    cleanupExpiredRooms(io);
+  }, 1 * 60 * 1000); // 1 minute
 };
 
 /**

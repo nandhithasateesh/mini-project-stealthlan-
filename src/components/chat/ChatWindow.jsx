@@ -1,81 +1,130 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Send, Paperclip, Image, Video, Mic, File, Smile, Pin,
-  Trash2, AlertTriangle, Eye, Users, Settings, Clock, X, Upload, BarChart3
+import { 
+  MessageSquare, 
+  Paperclip, 
+  Send, 
+  Smile, 
+  Image, 
+  Video, 
+  Mic, 
+  File, 
+  X,
+  BarChart3,
+  Users,
+  ChevronDown,
+  Clock,
+  UserMinus,
+  Pin,
+  AlertTriangle,
+  Crown
 } from 'lucide-react'
 import AudioRecorder from './AudioRecorder'
 import VideoRecorder from './VideoRecorder'
-import MessageTimer from './MessageTimer'
-import RoomDashboard from './RoomDashboard'
-import { uploadFile, formatFileSize, getFileIcon } from '../../utils/fileUpload'
 
-const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
+const ChatWindow = ({ socket, room, user, mode = 'normal', theme = 'dark' }) => {
   const [messages, setMessages] = useState([])
   const [inputMessage, setInputMessage] = useState('')
-  const [isTyping, setIsTyping] = useState(false)
-  const [typingUsers, setTypingUsers] = useState([])
-  const [recordingUsers, setRecordingUsers] = useState([])
   const [onlineUsers, setOnlineUsers] = useState([])
+  const [typingUsers, setTypingUsers] = useState([])
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
-  const [showAudioRecorder, setShowAudioRecorder] = useState(false)
-  const [showVideoRecorder, setShowVideoRecorder] = useState(false)
-  const [selfDestructTimer, setSelfDestructTimer] = useState(null)
+  const [selectedFile, setSelectedFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [selectedFile, setSelectedFile] = useState(null)
-  const [filePreview, setFilePreview] = useState(null)
-  const [previewModal, setPreviewModal] = useState(null) // { fileUrl, fileName, fileType, mimeType }
-  const [showDashboard, setShowDashboard] = useState(false)
-  const [dashboardData, setDashboardData] = useState({
-    activeUsers: [],
-    leftUsers: [],
-    failedAttempts: []
-  })
+  const [showFileUpload, setShowFileUpload] = useState(false)
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false)
+  const [showVideoRecorder, setShowVideoRecorder] = useState(false)
+  const [previewModal, setPreviewModal] = useState(null)
+  const [filePreviewModal, setFilePreviewModal] = useState(null)
+  
+  
+  // Normal Mode specific states
+  const [roomMembers, setRoomMembers] = useState([])
+  const [showMembersDropdown, setShowMembersDropdown] = useState(false)
+  const [timeRemaining, setTimeRemaining] = useState(null)
+
   const messagesEndRef = useRef(null)
-  const typingTimeoutRef = useRef(null)
   const fileInputRef = useRef(null)
+  const typingTimeoutRef = useRef(null)
 
-  const emojis = ['😀', '😂', '❤️', '👍', '🎉', '🔥', '💯', '👏', '🙌', '✨']
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  // Socket event listeners
   useEffect(() => {
     if (!socket || !room) return
 
-    // Join room with password (if available)
-    const roomPassword = room._password || room.password || '';
-    socket.emit('room:join', { roomId: room.id, password: roomPassword }, ({ success, messages: roomMessages, error }) => {
-      if (success) {
-        setMessages(roomMessages || [])
-      } else {
-        console.error('Failed to join room:', error);
-        alert(`Failed to join room: ${error || 'Unknown error'}`);
+    // Join room with password (only for normal mode)
+    // Secure mode rooms are already joined during creation
+    if (mode === 'normal') {
+      const joinData = { roomId: room.id }
+      if (room._password) {
+        joinData.password = room._password
       }
-    })
+      
+      socket.emit('room:join', joinData, ({ success, roomMessages, error }) => {
+        if (success) {
+          setMessages(roomMessages || [])
+        } else {
+          console.error('Failed to join room:', error)
+          alert(`Failed to join room: ${error || 'Unknown error'}`)
+        }
+      })
+    } else {
+      // For secure mode, just get the messages since we're already in the room
+      socket.emit('messages:get', { roomId: room.id }, (response) => {
+        if (response && response.success) {
+          setMessages(response.messages || [])
+        }
+      })
+    }
 
     // Listen for new messages
     socket.on('message:new', (message) => {
-      setMessages(prev => [...prev, message])
+      console.log('[CHAT] Received message:', message)
+      console.log('[CHAT] Current messages count before adding:', messages.length)
+      if (message.isScreenshotAlert) {
+        console.log('[CHAT] This is a screenshot alert message!')
+      }
+      if (message.isDownloadNotification) {
+        console.log('[CHAT] This is a download notification message!', message)
+      }
+      setMessages(prev => {
+        console.log('[CHAT] Adding message to array. Previous length:', prev.length)
+        const newMessages = [...prev, message]
+        console.log('[CHAT] New messages array length:', newMessages.length)
+        return newMessages
+      })
       scrollToBottom()
+    })
+
+    // Listen for screenshot alerts specifically
+    socket.on('screenshot:alert', ({ message, username, method }) => {
+      console.log('[CHAT] Received screenshot alert event:', { message, username, method })
+      if (message) {
+        console.log('[CHAT] Adding screenshot alert to messages')
+        setMessages(prev => [...prev, message])
+        scrollToBottom()
+      }
     })
 
     // Listen for deleted messages
     socket.on('message:deleted', ({ messageId }) => {
       setMessages(prev => prev.filter(m => m.id !== messageId))
-    })
-
-    // Listen for reactions
-    socket.on('message:reaction', ({ messageId, emoji, userId }) => {
-      setMessages(prev => prev.map(msg => {
-        if (msg.id === messageId) {
-          const reactions = { ...msg.reactions }
-          if (!reactions[emoji]) reactions[emoji] = []
-          if (!reactions[emoji].includes(userId)) {
-            reactions[emoji].push(userId)
-          }
-          return { ...msg, reactions }
-        }
-        return msg
-      }))
     })
 
     // Typing indicators
@@ -90,425 +139,632 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
       setTypingUsers(prev => prev.filter(u => u.userId !== userId))
     })
 
-    // Recording indicators
-    socket.on('user:recording', ({ userId, username, type }) => {
-      setRecordingUsers(prev => {
-        const filtered = prev.filter(u => u.userId !== userId)
-        return [...filtered, { userId, username, type }]
-      })
-    })
-
-    socket.on('user:stopped-recording', ({ userId }) => {
-      setRecordingUsers(prev => prev.filter(u => u.userId !== userId))
-    })
-
-    // Room-specific online users (ONLY use this in chat window, ignore global)
+    // Online users
     socket.on('room:online-users', (users) => {
-      console.log(`[ChatWindow] Room has ${users.length} users online:`, users);
-      setOnlineUsers(users)
+      setOnlineUsers(users || [])
     })
 
-    // Screenshot alert - show in chat as system message
-    socket.on('screenshot:alert', ({ username, timestamp }) => {
-      const screenshotMessage = {
-        id: `screenshot-${Date.now()}`,
-        type: 'system',
-        content: `📸 ${username} took a screenshot`,
-        timestamp: timestamp,
-        isScreenshotAlert: true
-      }
-      setMessages(prev => [...prev, screenshotMessage])
-    })
-
-    // File download notification
-    socket.on('file:download-alert', ({ username, fileName, timestamp }) => {
-      const downloadMessage = {
-        id: `download-${Date.now()}`,
-        type: 'system',
-        content: `📥 ${username} downloaded ${fileName}`,
-        timestamp: timestamp,
-        isDownloadAlert: true
-      }
-      setMessages(prev => [...prev, downloadMessage])
-    })
-
-    // User joined/left
-    socket.on('user:joined', ({ username, message }) => {
-      console.log(`${username} joined the room`)
-      // Server provides the message - just use it
-      if (message) {
-        setMessages(prev => [...prev, message])
-      }
-    })
-
-    socket.on('user:left', ({ username, message }) => {
-      console.log(`${username} left the room`)
-      // Server provides the message - just use it
-      if (message) {
-        setMessages(prev => [...prev, message])
-      }
-    })
-
-    // Room expired
-    socket.on('room:expired', ({ roomId: expiredRoomId }) => {
+    // Room expiry
+    socket.on('room:expired', ({ roomId: expiredRoomId, roomName }) => {
       if (room.id === expiredRoomId) {
+        // Show alert and handle redirect based on mode
         alert('⏰ Room has expired and been deleted.')
-        window.location.reload()
+        
+        // Redirect based on mode
+        if (mode === 'secure') {
+          // For secure mode, go back to secure mode landing page
+          window.location.href = '/secure'
+        } else {
+          // For normal mode, go back to normal mode (no chat)
+          window.location.href = '/normal'
+        }
       }
-    })
-
-    // Dashboard data updates
-    socket.on('dashboard:update', (data) => {
-      setDashboardData(data)
-    })
-
-    // User kicked event
-    socket.on('user:kicked', ({ reason }) => {
-      alert(`🚫 You have been kicked from the room.\n\nReason: ${reason}`)
-      window.location.reload()
     })
 
     return () => {
-      // Don't emit room:leave on cleanup - this causes issues with host-leave detection
-      // The disconnect handler on server will handle cleanup properly
-      // socket.emit('room:leave', { roomId: room.id })
-      
       socket.off('message:new')
       socket.off('message:deleted')
-      socket.off('message:reaction')
+      socket.off('screenshot:alert')
       socket.off('user:typing')
       socket.off('user:stopped-typing')
-      socket.off('user:recording')
-      socket.off('user:stopped-recording')
       socket.off('room:online-users')
-      socket.off('screenshot:alert')
-      socket.off('file:download-alert')
-      socket.off('user:joined')
-      socket.off('user:left')
       socket.off('room:expired')
-      socket.off('dashboard:update')
-      socket.off('user:kicked')
     }
   }, [socket, room])
 
-  // Screenshot detection removed from secure mode
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  // Room timer (Normal Mode only)
+  useEffect(() => {
+    if (!room || !room.expiresAt || mode !== 'normal') return
 
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return
+    const updateTimer = () => {
+      const now = new Date().getTime()
+      const expiresAt = new Date(room.expiresAt).getTime()
+      const remaining = expiresAt - now
 
-    // Stop typing indicator immediately
-    handleStopTyping()
+      if (remaining <= 0) {
+        setTimeRemaining('00:00:00')
+        return
+      }
 
-    socket.emit('message:send', {
-      roomId: room.id,
-      content: inputMessage,
-      type: 'text'
-    }, ({ success }) => {
-      if (success) {
-        setInputMessage('')
+      const hours = Math.floor(remaining / (1000 * 60 * 60))
+      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((remaining % (1000 * 60)) / 1000)
+
+      const formatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+      setTimeRemaining(formatted)
+    }
+
+    updateTimer()
+    const interval = setInterval(updateTimer, 1000)
+    return () => clearInterval(interval)
+  }, [room, mode])
+
+  // Get room members (Normal Mode only)
+  useEffect(() => {
+    if (!socket || !room || mode !== 'normal') return
+
+    // Get initial room members
+    socket.emit('room:get-members', { roomId: room.id }, (response) => {
+      console.log('[GET-MEMBERS] Client received response:', response)
+      if (response && response.success) {
+        console.log('[GET-MEMBERS] Setting room members:', response.members)
+        setRoomMembers(response.members || [])
       }
     })
+
+    socket.on('user:joined', ({ username: joinedUser }) => {
+      setRoomMembers(prev => {
+        if (!prev.find(member => member.username === joinedUser)) {
+          return [...prev, { username: joinedUser, status: 'online' }]
+        }
+        return prev
+      })
+    })
+
+    socket.on('user:left', ({ username: leftUser }) => {
+      setRoomMembers(prev => prev.filter(member => member.username !== leftUser))
+    })
+
+    return () => {
+      socket.off('user:joined')
+      socket.off('user:left')
+    }
+  }, [socket, room, mode])
+
+  const handleSendMessage = () => {
+    if (!inputMessage.trim() || !socket) return
+
+    const messageData = {
+      roomId: room.id,
+      content: inputMessage.trim(),
+      type: 'text',
+      timestamp: new Date().toISOString()
+    }
+
+    socket.emit('message:send', messageData, (response) => {
+      if (response && response.success) {
+        console.log('[CHAT] Message sent successfully')
+      } else {
+        console.error('[CHAT] Failed to send message:', response?.error)
+        alert(`Failed to send message: ${response?.error || 'Unknown error'}`)
+      }
+    })
+    setInputMessage('')
+    handleStopTyping()
   }
 
   const handleTyping = () => {
-    if (!isTyping) {
-      setIsTyping(true)
-      socket.emit('typing:start', { roomId: room.id })
-    }
+    if (!socket || !room) return
+
+    socket.emit('user:typing', {
+      roomId: room.id,
+      userId: user.id,
+      username: user.username
+    })
 
     clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(() => {
       handleStopTyping()
-    }, 2000)
+    }, 3000)
   }
 
   const handleStopTyping = () => {
+    if (!socket || !room) return
+
+    socket.emit('user:stopped-typing', {
+      roomId: room.id,
+      userId: user.id
+    })
+
     clearTimeout(typingTimeoutRef.current)
-    setIsTyping(false)
-    socket.emit('typing:stop', { roomId: room.id })
   }
 
-  const handleReaction = (messageId, emoji) => {
-    socket.emit('message:react', {
-      roomId: room.id,
-      messageId,
-      emoji
-    })
-  }
-
-  const handleDeleteMessage = (messageId) => {
-    socket.emit('message:delete', {
-      roomId: room.id,
-      messageId
-    })
-  }
-
-  const handlePinMessage = (messageId) => {
-    if (mode === 'normal') {
-      socket.emit('message:pin', {
-        roomId: room.id,
-        messageId
-      })
-    }
-  }
-
-  const handleFileSelect = (event, fileType = 'file') => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0]
-    if (!file) return
+    if (!file || !socket || !room) return
 
-    console.log('[FileSelect] File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
+    // Reset file input
+    event.target.value = ''
 
-    // Store the selected file
-    setSelectedFile(file)
-
-    // Create preview for images
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setFilePreview(e.target.result)
-      }
-      reader.readAsDataURL(file)
-    } else {
-      setFilePreview(null)
+    // Check file size (10MB limit)
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    if (file.size > maxSize) {
+      alert('File size must be less than 10MB')
+      return
     }
 
-    // Reset input
-    event.target.value = ''
-  }
+    setUploading(true)
+    setUploadProgress(0)
 
-  const handleSendFile = async () => {
-    if (!selectedFile) return
-
-    console.log('[FileUpload] Starting upload:', selectedFile.name);
+    // Safety timeout to prevent stuck loading state
+    const uploadTimeout = setTimeout(() => {
+      console.log('[FILE UPLOAD] Upload timeout - clearing loading state')
+      setUploading(false)
+      setUploadProgress(0)
+      alert('Upload timed out. Please try again.')
+    }, 30000) // 30 seconds timeout
 
     try {
-      setUploading(true)
-      setUploadProgress(0)
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('roomId', room.id)
+      formData.append('mode', mode)
 
-      console.log('[FileUpload] Uploading to server...');
-      const result = await uploadFile(selectedFile, mode)
-      console.log('[FileUpload] Upload successful:', result);
-      
-      setUploadProgress(100)
-
-      // Send message with file
-      console.log('[FileUpload] Sending message with file...');
-      
-      // Add timeout to handle cases where callback isn't called
-      const timeoutId = setTimeout(() => {
-        console.warn('[FileUpload] Callback timeout - assuming success');
-        setUploading(false)
-        setUploadProgress(0)
-        setSelectedFile(null)
-        setFilePreview(null)
-      }, 5000);
-
-      socket.emit('message:send', {
-        roomId: room.id,
-        content: `Sent ${result.file.category}: ${result.file.originalName}`,
-        type: result.file.category,
-        fileUrl: result.file.url,
-        fileName: result.file.originalName,
-        fileSize: selectedFile.size,
-        mimeType: selectedFile.type
-      }, (response) => {
-        clearTimeout(timeoutId);
-        
-        if (response && response.success) {
-          console.log('[FileUpload] Message sent successfully');
-          setUploading(false)
-          setUploadProgress(0)
-          setSelectedFile(null)
-          setFilePreview(null)
-        } else {
-          console.error('[FileUpload] Failed to send message:', response?.error);
-          alert('Failed to send file message: ' + (response?.error || 'Unknown error'));
-          setUploading(false)
-          setUploadProgress(0)
-        }
+      console.log('[FILE UPLOAD] Attempting file upload...', file.name, file.type)
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       })
+
+      console.log('[FILE UPLOAD] Response status:', response.status)
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('[FILE UPLOAD] Error response:', errorText)
+        throw new Error(`Upload failed: ${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // Send file message
+        const messageData = {
+          roomId: room.id,
+          content: `Shared file: ${file.name}`,
+          type: 'file',
+          fileUrl: result.file.url,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: result.file.mimetype,
+          category: result.file.category,
+          isPreview: true,
+          downloadCount: 0,
+          timestamp: new Date().toISOString()
+        }
+
+        socket.emit('message:send', messageData, (response) => {
+          if (response && response.success) {
+            console.log('[CHAT] File message sent successfully')
+          } else {
+            console.error('[CHAT] Failed to send file message:', response?.error)
+            alert(`Failed to send file: ${response?.error || 'Unknown error'}`)
+          }
+        })
+      } else {
+        throw new Error(result.error || 'Upload failed')
+      }
     } catch (error) {
-      console.error('[FileUpload] Upload error:', error)
-      alert('Failed to upload file: ' + error.message)
+      console.error('[CHAT] File upload error:', error)
+      alert(`File upload failed: ${error.message}`)
+    } finally {
+      clearTimeout(uploadTimeout)
       setUploading(false)
       setUploadProgress(0)
     }
   }
 
-  const handleCancelFile = () => {
-    setSelectedFile(null)
-    setFilePreview(null)
-  }
+  const handleSendAudio = async (audioBlob) => {
+    if (!audioBlob || !socket || !room) return
 
-  const handleSendAudio = (audioBlob) => {
-    // Convert blob to base64 for transmission
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const base64Audio = reader.result
-      socket.emit('message:send', {
-        roomId: room.id,
-        content: 'Audio message',
-        type: 'audio',
-        fileUrl: base64Audio
-      }, ({ success }) => {
-        if (success) {
-          setShowAudioRecorder(false)
-        }
+    setUploading(true)
+    setShowAudioRecorder(false)
+
+    try {
+      // Create FormData and append the blob directly
+      const formData = new FormData()
+      // Ensure the blob has the correct type
+      const audioFile = new Blob([audioBlob], { type: audioBlob.type || 'audio/webm' })
+      formData.append('file', audioFile, `audio-${Date.now()}.webm`)
+      formData.append('roomId', room.id)
+      formData.append('mode', mode)
+
+      console.log('[AUDIO UPLOAD] Attempting audio upload...', audioBlob.type, audioBlob.size)
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       })
+
+      console.log('[AUDIO UPLOAD] Response status:', response.status)
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('[AUDIO UPLOAD] Error response:', errorText)
+        throw new Error(`Upload failed: ${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // Send audio message
+        const messageData = {
+          roomId: room.id,
+          content: `🎤 Voice message`,
+          type: 'audio',
+          fileUrl: result.file.url,
+          fileName: result.file.filename || result.file.originalName || `audio-${Date.now()}.webm`,
+          fileSize: result.file.size,
+          mimeType: result.file.mimetype,
+          category: 'audio',
+          isPreview: true,
+          downloadCount: 0,
+          timestamp: new Date().toISOString()
+        }
+
+        socket.emit('message:send', messageData, (response) => {
+          if (response && response.success) {
+            console.log('[CHAT] Audio message sent successfully')
+          } else {
+            console.error('[CHAT] Failed to send audio message:', response?.error)
+            alert(`Failed to send audio: ${response?.error || 'Unknown error'}`)
+          }
+        })
+      } else {
+        throw new Error(result.error || 'Upload failed')
+      }
+    } catch (error) {
+      console.error('[CHAT] Audio upload error:', error)
+      alert(`Audio upload failed: ${error.message}`)
+    } finally {
+      setUploading(false)
     }
-    reader.readAsDataURL(audioBlob)
   }
 
   const handleSendVideo = async (videoBlob) => {
+    if (!videoBlob || !socket || !room) return
+
+    setUploading(true)
+    setShowVideoRecorder(false)
+
     try {
-      console.log('[VideoUpload] Starting video upload:', videoBlob.size, 'bytes');
-      setUploading(true)
-      setUploadProgress(0)
+      // Create FormData and append the blob directly
+      const formData = new FormData()
+      // Ensure the blob has the correct type
+      const videoFile = new Blob([videoBlob], { type: videoBlob.type || 'video/webm' })
+      formData.append('file', videoFile, `video-${Date.now()}.webm`)
+      formData.append('roomId', room.id)
+      formData.append('mode', mode)
 
-      // Pass the blob directly with a custom filename
-      const fileName = `video-${Date.now()}.webm`
-      const result = await uploadFile(videoBlob, mode, fileName)
-      console.log('[VideoUpload] Upload successful:', result);
-      
-      setUploadProgress(100)
-
-      // Send message with video
-      socket.emit('message:send', {
-        roomId: room.id,
-        content: 'Sent video recording',
-        type: 'video',
-        fileUrl: result.file.url,
-        fileName: result.file.originalName
-      }, ({ success, error }) => {
-        if (success) {
-          console.log('[VideoUpload] Message sent successfully');
-          setUploading(false)
-          setUploadProgress(0)
-          setShowVideoRecorder(false)
-        } else {
-          console.error('[VideoUpload] Failed to send message:', error);
-          alert('Failed to send video: ' + (error || 'Unknown error'));
-          setUploading(false)
-          setUploadProgress(0)
-        }
+      console.log('[VIDEO UPLOAD] Attempting video upload...', videoBlob.type, videoBlob.size)
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       })
+
+      console.log('[VIDEO UPLOAD] Response status:', response.status)
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('[VIDEO UPLOAD] Error response:', errorText)
+        throw new Error(`Upload failed: ${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // Send video message
+        const messageData = {
+          roomId: room.id,
+          content: `🎥 Video message`,
+          type: 'video',
+          fileUrl: result.file.url,
+          fileName: result.file.filename || result.file.originalName || `video-${Date.now()}.webm`,
+          fileSize: result.file.size,
+          mimeType: result.file.mimetype,
+          category: 'video',
+          isPreview: true,
+          downloadCount: 0,
+          timestamp: new Date().toISOString()
+        }
+
+        socket.emit('message:send', messageData, (response) => {
+          if (response && response.success) {
+            console.log('[CHAT] Video message sent successfully')
+          } else {
+            console.error('[CHAT] Failed to send video message:', response?.error)
+            alert(`Failed to send video: ${response?.error || 'Unknown error'}`)
+          }
+        })
+      } else {
+        throw new Error(result.error || 'Upload failed')
+      }
     } catch (error) {
-      console.error('[VideoUpload] Upload error:', error)
-      alert('Failed to upload video: ' + error.message)
+      console.error('[CHAT] Video upload error:', error)
+      alert(`Video upload failed: ${error.message}`)
+    } finally {
       setUploading(false)
-      setUploadProgress(0)
     }
   }
 
-  const handleMessageExpire = (messageId) => {
-    setMessages(prev => prev.filter(m => m.id !== messageId))
-  }
-
-  const handleSetSelfDestruct = (minutes) => {
-    setSelfDestructTimer(minutes)
-  }
-
-  const handleDownload = (fileName, fileUrl) => {
-    console.log('[Download] User downloading:', fileName);
+  const handleKickMember = (memberUsername) => {
+    if (!socket || !room) return
     
-    // Notify server about download
-    socket.emit('file:downloaded', {
-      roomId: room.id,
-      fileName: fileName
-    });
-    
-    // Trigger download
-    const link = document.createElement('a');
-    // Handle both base64 and file path URLs
-    link.href = fileUrl.startsWith('data:') ? fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${fileUrl}`;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-
-  const handleOpenDashboard = () => {
-    // Request latest dashboard data from server
-    socket.emit('dashboard:request', { roomId: room.id }, (response) => {
-      if (response.success) {
-        setDashboardData(response.data)
-        setShowDashboard(true)
-      }
-    })
-  }
-
-  const handleKickUser = (userId, username) => {
-    if (confirm(`Are you sure you want to kick "${username}" from the room?`)) {
+    if (confirm(`Are you sure you want to kick ${memberUsername} from the room?`)) {
       socket.emit('user:kick', {
         roomId: room.id,
-        userId: userId,
-        username: username
+        userId: memberUsername,
+        username: memberUsername
       }, (response) => {
-        if (response.success) {
-          alert(`✅ ${username} has been kicked from the room`)
+        if (response && response.success) {
+          console.log(`Successfully kicked ${memberUsername}`)
+          setRoomMembers(prev => prev.filter(member => member.username !== memberUsername))
         } else {
-          alert(`❌ Failed to kick user: ${response.error}`)
+          alert(`Failed to kick ${memberUsername}: ${response?.error || 'Unknown error'}`)
         }
       })
     }
   }
 
-  const formatTime = (timestamp) => {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+
+  const handleOpenFilePreview = (message) => {
+    setFilePreviewModal(message)
   }
+
+  const handleDownloadFile = (message) => {
+    if (!socket || !room || !message.fileUrl) {
+      console.error('[DOWNLOAD] Missing required data:', { socket: !!socket, room: !!room, fileUrl: !!message.fileUrl })
+      return
+    }
+
+    if (!user || !user.username) {
+      console.error('[DOWNLOAD] User data missing:', user)
+      return
+    }
+
+    // Create download link
+    const link = document.createElement('a')
+    link.href = message.fileUrl
+    link.download = message.fileName || 'download'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    // Debug: Log what we're sending
+    console.log('[DOWNLOAD DEBUG] Full context:', {
+      roomId: room.id,
+      roomName: room.name,
+      userName: user.username,
+      userId: user.id,
+      messageId: message.id,
+      fileName: message.fileName,
+      category: message.category,
+      type: message.type,
+      fileUrl: message.fileUrl
+    })
+
+    // Determine file type and name based on message properties
+    let fileType = message.category || message.type || 'file'
+    let fileName = message.fileName || `${message.type || 'file'}-download`
+    
+    // Special handling for audio and video messages
+    if (message.type === 'audio') {
+      fileType = 'audio'
+      fileName = message.fileName || `voice-message-${Date.now()}.webm`
+    } else if (message.type === 'video') {
+      fileType = 'video'
+      fileName = message.fileName || `video-message-${Date.now()}.webm`
+    }
+
+    const downloadData = {
+      roomId: room.id,
+      messageId: message.id || 'unknown-message',
+      fileName: fileName,
+      fileType: fileType,
+      downloaderUsername: user.username
+    }
+
+    console.log('[DOWNLOAD] Sending download notification:', downloadData)
+
+    // Send download notification with timeout
+    const timeoutId = setTimeout(() => {
+      console.error('[DOWNLOAD] Server response timeout - no callback received')
+      // Fallback: show local notification if server doesn't respond
+      console.log('[DOWNLOAD] Adding fallback notification due to timeout')
+    }, 5000)
+
+    socket.emit('file:downloaded', downloadData, (response) => {
+      clearTimeout(timeoutId)
+      console.log('[DOWNLOAD] Server callback received:', response)
+      if (response && response.success) {
+        console.log('[DOWNLOAD] ✅ Notification sent successfully - server will broadcast to all users')
+        console.log('[DOWNLOAD] Expected notification:', `${downloadData.fileType === 'audio' ? '🎵' : downloadData.fileType === 'video' ? '🎬' : '📥'} ${downloadData.downloaderUsername} downloaded ${downloadData.fileName}`)
+      } else {
+        console.error('[DOWNLOAD] ❌ Failed to send notification:', response?.error || 'No response')
+      }
+    })
+
+    console.log(`[DOWNLOAD] ${user.username} downloaded ${message.fileName || 'file'}`)
+  }
+
 
   if (!room) {
     return (
-      <div className={`flex-1 flex items-center justify-center ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-100'}`}>
-        <div className={`text-center ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-          <Users className="w-16 h-16 mx-auto mb-4 opacity-50" />
-          <p className="text-lg">Select a room to start chatting</p>
+      <div className={`flex-1 flex items-center justify-center ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+        <div className="text-center p-4">
+          <MessageSquare className="w-12 h-12 sm:w-16 sm:h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg sm:text-xl font-semibold mb-2">No Room Selected</h3>
+          <p className="text-gray-500 text-sm sm:text-base">Select a room to start chatting</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className={`flex-1 flex flex-col relative ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
-      {/* Room Header */}
-      <div className="bg-slate-800 border-b border-slate-700 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-white">
-              {room.name}
-            </h2>
-            <p className="text-sm text-gray-400">
-              {room.members?.length || 0} members
-              {room.burnAfterReading && <span className="ml-2">🔥 Burn After Reading</span>}
-              {room.timeLimit && <span className="ml-2">⏱️ {room.timeLimit}min limit</span>}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 text-sm text-gray-400">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span>{onlineUsers.length} online</span>
+    <div className={`flex-1 flex flex-col ${theme === 'dark' ? 'bg-slate-900' : 'bg-gray-50'} min-h-0`}>
+      {/* Header - Mobile Optimized */}
+      <div className={`p-3 border-b ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'} flex-shrink-0`}>
+        <div className="space-y-3">
+          {/* Room Info Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <MessageSquare className="w-4 h-4 text-primary flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <h2 className={`text-sm font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'} truncate`}>
+                  {room.name}
+                </h2>
+                <div className="text-xs text-gray-500 truncate">
+                  ID: {room.id}
+                </div>
+              </div>
             </div>
-            {mode === 'secure' && room.createdBy === user.username && (
-              <button
-                onClick={handleOpenDashboard}
-                className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg transition-colors"
-                title="View Room Dashboard (Host Only)"
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span className="hidden sm:inline">Details</span>
-              </button>
-            )}
+            
+            <div className="flex items-center gap-1 text-xs text-gray-400 flex-shrink-0">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>{onlineUsers.length}</span>
+            </div>
           </div>
+
+          {/* Controls Row - Mobile Optimized */}
+          {mode === 'normal' && (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Room Timer */}
+              {timeRemaining && (
+                <div className="text-xs bg-orange-500/20 px-2 py-1 rounded-full border border-orange-500/30 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-orange-400" />
+                  <span className={`font-mono font-bold ${
+                    timeRemaining.startsWith('00:0') ? 'text-red-400 animate-pulse' : 'text-orange-300'
+                  }`}>
+                    {timeRemaining}
+                  </span>
+                </div>
+              )}
+
+              {/* Members Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowMembersDropdown(!showMembersDropdown)}
+                  className="text-xs bg-blue-500/20 hover:bg-blue-500/30 px-2 py-1 rounded-full border border-blue-500/30 flex items-center gap-1 transition-colors"
+                >
+                  <Users className="w-3 h-3 text-blue-400" />
+                  <span className="text-blue-300">({roomMembers.length})</span>
+                  <ChevronDown className={`w-2 h-2 text-blue-400 transition-transform ${showMembersDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showMembersDropdown && (
+                  <div className="absolute top-full left-0 mt-2 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 min-w-52 max-w-xs">
+                    <div className="p-3 max-h-64 overflow-y-auto">
+                      {roomMembers.length > 0 ? (
+                        <>
+                          {/* Host Section */}
+                          {(() => {
+                            const host = roomMembers.find(member => member.username === room?.createdBy)
+                            if (host) {
+                              return (
+                                <div className="mb-3">
+                                  <div className="text-xs text-yellow-400 font-semibold mb-2 px-1 flex items-center gap-1">
+                                    <Crown className="w-3 h-3" />
+                                    Host
+                                  </div>
+                                  <div className="flex items-center justify-between px-2 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${host.status === 'online' ? 'bg-green-400' : 'bg-gray-500'}`}></div>
+                                      <span className="text-sm text-white font-medium truncate">{host.username}</span>
+                                      <span className="text-xs bg-yellow-500/30 text-yellow-300 px-2 py-0.5 rounded-full flex-shrink-0">HOST</span>
+                                    </div>
+                                    {room?.createdBy === user?.username && host.username !== user?.username && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleKickMember(host.username)
+                                        }}
+                                        className="text-red-400 hover:text-red-300 hover:bg-red-500/20 p-1 rounded transition-colors flex-shrink-0 ml-2"
+                                        title={`Kick ${host.username}`}
+                                      >
+                                        <UserMinus className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            }
+                            return null
+                          })()}
+
+                          {/* Members Section */}
+                          {(() => {
+                            const members = roomMembers.filter(member => member.username !== room?.createdBy)
+                            if (members.length > 0) {
+                              return (
+                                <div>
+                                  <div className="text-xs text-blue-400 font-semibold mb-2 px-1 flex items-center gap-1">
+                                    <Users className="w-3 h-3" />
+                                    Members ({members.length})
+                                  </div>
+                                  {members.map((member, index) => (
+                                    <div key={index} className="flex items-center justify-between px-2 py-1.5 hover:bg-slate-700 rounded-lg mb-1">
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${member.status === 'online' ? 'bg-green-400' : 'bg-gray-500'}`}></div>
+                                        <span className="text-sm text-gray-200 truncate">{member.username}</span>
+                                      </div>
+                                      {room?.createdBy === user?.username && member.username !== user?.username && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleKickMember(member.username)
+                                          }}
+                                          className="text-red-400 hover:text-red-300 hover:bg-red-500/20 p-1 rounded transition-colors flex-shrink-0 ml-2"
+                                          title={`Kick ${member.username}`}
+                                        >
+                                          <UserMinus className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            }
+                            return null
+                          })()}
+
+                          {/* If no members besides host */}
+                          {roomMembers.filter(member => member.username !== room?.createdBy).length === 0 && (
+                            <div className="text-xs text-gray-500 px-2 py-2 text-center italic">
+                              No other members in this room
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-xs text-gray-500 px-2 py-2 text-center">No members found</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+
+            </div>
+          )}
+
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages Area - Mobile Optimized */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+        {/* Debug info */}
+        {messages.length === 0 && (
+          <div className="text-center text-gray-500 py-8">
+            <p>No messages yet. Start the conversation!</p>
+            <p className="text-xs mt-2">Debug: Messages array length: {messages.length}</p>
+          </div>
+        )}
+        
         <AnimatePresence>
           {messages.map((message) => {
             // System messages (screenshot alerts, etc.)
@@ -521,10 +777,10 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
                   exit={{ opacity: 0, scale: 0.8 }}
                   className="flex justify-center my-2"
                 >
-                  <div className={`px-4 py-2 rounded-full text-xs font-medium ${
+                  <div className={`px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold max-w-full ${
                     message.isScreenshotAlert 
-                      ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                      : message.isDownloadAlert
+                      ? 'bg-red-600/30 text-red-200 border-2 border-red-500/50 shadow-lg shadow-red-500/20 animate-pulse' 
+                      : message.isDownloadNotification
                       ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                       : message.isRoomCreation
                       ? 'bg-green-500/20 text-green-400 border border-green-500/30'
@@ -534,7 +790,14 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
                       ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
                       : 'bg-slate-700/50 text-gray-400'
                   }`}>
-                    {message.content}
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <span className="break-words">{message.content}</span>
+                      {message.isScreenshotAlert && (
+                        <span className="text-xs text-red-300/70">
+                          {formatTime(message.timestamp)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               )
@@ -549,10 +812,10 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
                 exit={{ opacity: 0, scale: 0.8 }}
                 className={`flex ${message.userId === user.id ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`max-w-[90%] sm:max-w-md ${message.userId === user.id ? 'items-end' : 'items-start'} flex flex-col`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs text-gray-400">{message.username}</span>
-                    <span className="text-xs text-gray-500">{formatTime(message.timestamp)}</span>
+                <div className={`max-w-[85%] sm:max-w-md ${message.userId === user.id ? 'items-end' : 'items-start'} flex flex-col`}>
+                  <div className="flex items-center gap-2 mb-1 px-1">
+                    <span className="text-xs text-gray-400 truncate">{message.username}</span>
+                    <span className="text-xs text-gray-500 flex-shrink-0">{formatTime(message.timestamp)}</span>
                   </div>
                   
                   <div className={`relative group rounded-lg p-3 ${
@@ -560,124 +823,77 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
                       ? 'bg-primary text-white'
                       : 'bg-slate-800 text-gray-200'
                   }`}>
-                    {message.pinned && <Pin className="w-3 h-3 absolute -top-1 -right-1 text-yellow-500" />}
+                    <p className="break-words text-sm">{message.content}</p>
                     
-                    {/* Render different message types */}
-                  {(message.fileUrl && ['image', 'video', 'audio', 'document', 'file'].includes(message.type)) ? (
-                    <div className="bg-slate-700/50 p-3 rounded">
-                      <div className="flex items-center gap-3 mb-2">
-                        {message.type === 'image' ? (
-                          <img 
-                            src={message.fileUrl.startsWith('data:') ? message.fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${message.fileUrl}`}
-                            alt={message.fileName}
-                            className="w-16 h-16 object-cover rounded"
-                          />
-                        ) : message.type === 'video' ? (
-                          <Video className="w-8 h-8 text-purple-400" />
-                        ) : message.type === 'audio' ? (
-                          <Mic className="w-8 h-8 text-green-400" />
-                        ) : (
-                          <File className="w-8 h-8 text-blue-400" />
+                    {/* File/Audio/Video Preview */}
+                    {(message.type === 'file' || message.type === 'audio' || message.type === 'video') && message.fileUrl && (
+                      <div className="mt-3 border-t border-gray-600 pt-3">
+                        {message.type === 'file' && (
+                          <div className="mt-3">
+                            <button
+                              onClick={() => handleOpenFilePreview(message)}
+                              className="flex items-center gap-3 w-full p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-left"
+                            >
+                              <File className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-blue-400 hover:text-blue-300 truncate">
+                                  📎 {message.fileName}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                  {message.fileSize ? `${(message.fileSize / 1024 / 1024).toFixed(2)} MB` : 'Unknown size'} • Click to preview
+                                </p>
+                              </div>
+                              <Eye className="w-4 h-4 text-gray-400" />
+                            </button>
+                          </div>
                         )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{message.fileName}</p>
-                          <p className="text-xs text-gray-400">{formatFileSize(message.fileSize || 0)}</p>
-                        </div>
+                        
+                        {message.type === 'audio' && (
+                          <div className="bg-slate-700 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <Mic className="w-6 h-6 text-green-400" />
+                                <span className="text-sm text-white">Voice Message</span>
+                              </div>
+                              <button
+                                onClick={() => handleDownloadFile(message)}
+                                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs transition-colors"
+                              >
+                                Download
+                              </button>
+                            </div>
+                            <audio controls className="w-full" preload="metadata">
+                              <source src={message.fileUrl} type={message.mimeType || 'audio/webm'} />
+                              Your browser does not support audio playback.
+                            </audio>
+                          </div>
+                        )}
+                        
+                        {message.type === 'video' && (
+                          <div className="bg-slate-700 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <Video className="w-6 h-6 text-red-400" />
+                                <span className="text-sm text-white">Video Message</span>
+                              </div>
+                              <button
+                                onClick={() => handleDownloadFile(message)}
+                                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs transition-colors"
+                              >
+                                Download
+                              </button>
+                            </div>
+                            <video controls className="w-full max-h-64 rounded" preload="metadata">
+                              <source src={message.fileUrl} type={message.mimeType || 'video/webm'} />
+                              Your browser does not support video playback.
+                            </video>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => setPreviewModal({
-                            fileUrl: message.fileUrl,
-                            fileName: message.fileName,
-                            fileType: message.type,
-                            mimeType: message.mimeType
-                          })}
-                          className="flex-1 text-center text-xs bg-slate-600 hover:bg-slate-500 text-white px-3 py-2 rounded transition-colors flex items-center justify-center gap-1"
-                        >
-                          <Eye className="w-3 h-3" />
-                          Preview
-                        </button>
-                        <button 
-                          onClick={() => handleDownload(message.fileName, message.fileUrl)}
-                          className="flex-1 text-center text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded transition-colors flex items-center justify-center gap-1"
-                        >
-                          <File className="w-3 h-3" />
-                          Download
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="break-words">{message.content}</p>
-                  )}
-
-                  {/* Self-Destruct Timer */}
-                  <MessageTimer message={message} onExpire={handleMessageExpire} />
-
-                  {/* Reactions */}
-                  {Object.keys(message.reactions || {}).length > 0 && (
-                    <div className="flex gap-1 mt-2 flex-wrap">
-                      {Object.entries(message.reactions).map(([emoji, users]) => (
-                        <button
-                          key={emoji}
-                          onClick={() => handleReaction(message.id, emoji)}
-                          className="bg-slate-700 px-2 py-1 rounded text-xs flex items-center gap-1 hover:bg-slate-600"
-                        >
-                          <span>{emoji}</span>
-                          <span>{users.length}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Message Actions */}
-                  <div className="absolute -top-8 right-0 hidden group-hover:flex gap-1 bg-slate-700 rounded-lg p-1">
-                    <button
-                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                      className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                      title="Emoji"
-                    >
-                      <Smile className="w-5 h-5 text-gray-400" />
-                    </button>
-                    {mode === 'normal' && (
-                      <button
-                        onClick={() => handlePinMessage(message.id)}
-                        className="p-1 hover:bg-slate-600 rounded"
-                        title="Pin"
-                      >
-                        <Pin className="w-4 h-4 text-gray-300" />
-                      </button>
-                    )}
-                    {message.userId === user.id && (
-                      <button
-                        onClick={() => handleDeleteMessage(message.id)}
-                        className="p-1 hover:bg-red-600 rounded"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4 text-gray-300" />
-                      </button>
                     )}
                   </div>
-
-                  {/* Emoji Picker */}
-                  {showEmojiPicker === message.id && (
-                    <div className="absolute bottom-full mb-2 bg-slate-700 rounded-lg p-2 flex gap-1 shadow-lg z-10">
-                      {emojis.map(emoji => (
-                        <button
-                          key={emoji}
-                          onClick={() => {
-                            handleReaction(message.id, emoji)
-                            setShowEmojiPicker(null)
-                          }}
-                          className="hover:bg-slate-600 p-1 rounded text-lg"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
             )
           })}
         </AnimatePresence>
@@ -685,176 +901,65 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
         {/* Typing Indicator */}
         {typingUsers.length > 0 && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-sm text-gray-400 italic"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="flex justify-start mb-4"
           >
-            {typingUsers.map(u => u.username).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
-          </motion.div>
-        )}
-
-        {/* Recording Indicator */}
-        {recordingUsers.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-sm text-red-400 italic flex items-center gap-2"
-          >
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            {recordingUsers.map(u => `${u.username} (${u.type})`).join(', ')}
+            <div className="bg-blue-500/20 px-3 py-2 rounded-lg border border-blue-500/30 flex items-center gap-2">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              </div>
+              <span className="text-blue-300 text-sm">
+                {typingUsers.map(u => u.username).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
+              </span>
+            </div>
           </motion.div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className={`border-t p-4 relative ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-        {mode === 'secure' && room.burnAfterReading && (
-          <div className="mb-2 flex items-center gap-2 text-xs text-orange-400">
-            <AlertTriangle className="w-4 h-4" />
-            <span>Messages will self-destruct after viewing</span>
-          </div>
-        )}
-
-        {/* File Preview */}
-        {selectedFile && !uploading && (
-          <div className="mb-2 bg-slate-700 rounded-lg p-3">
-            <div className="flex items-start gap-3">
-              {/* Preview */}
-              <div className="flex-shrink-0">
-                {filePreview ? (
-                  <img src={filePreview} alt="Preview" className="w-16 h-16 object-cover rounded" />
-                ) : (
-                  <div className="w-16 h-16 bg-slate-600 rounded flex items-center justify-center">
-                    <Paperclip className="w-8 h-8 text-gray-400" />
-                  </div>
-                )}
-              </div>
-              
-              {/* File Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-300 font-medium truncate">{selectedFile.name}</p>
-                <p className="text-xs text-gray-400">{formatFileSize(selectedFile.size)}</p>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSendFile}
-                  className="px-4 py-2 bg-primary hover:bg-primary/80 text-white rounded-lg transition-colors flex items-center gap-2"
-                >
-                  <Send className="w-4 h-4" />
-                  Send
-                </button>
-                <button
-                  onClick={handleCancelFile}
-                  className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Upload Progress */}
-        {uploading && (
-          <div className="mb-2 bg-slate-700 rounded-lg p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-300">Uploading {selectedFile?.name}...</span>
-              <span className="text-sm text-gray-400">{uploadProgress}%</span>
-            </div>
-            <div className="w-full bg-slate-600 rounded-full h-2">
-              <div 
-                className="bg-primary h-2 rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Audio Recorder */}
-        {showAudioRecorder && (
-          <AudioRecorder
-            onSendAudio={handleSendAudio}
-            onCancel={() => setShowAudioRecorder(false)}
-            mode={mode}
-            socket={socket}
-            roomId={room.id}
-          />
-        )}
-
-        {/* Video Recorder */}
-        {showVideoRecorder && (
-          <VideoRecorder
-            onSendVideo={handleSendVideo}
-            onCancel={() => setShowVideoRecorder(false)}
-            mode={mode}
-            socket={socket}
-            roomId={room.id}
-          />
-        )}
-
-        {/* Hidden file inputs */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="*/*"
-          onChange={(e) => handleFileSelect(e, 'file')}
-          className="hidden"
-        />
-        <input
-          type="file"
-          id="image-input"
-          accept="image/*"
-          onChange={(e) => handleFileSelect(e, 'image')}
-          className="hidden"
-        />
-        <input
-          type="file"
-          id="video-input"
-          accept="video/*"
-          onChange={(e) => handleFileSelect(e, 'video')}
-          className="hidden"
-        />
-
+      {/* Input Area - Mobile Optimized */}
+      <div className={`border-t p-3 ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'} flex-shrink-0`}>
         <div className="flex items-center gap-2">
-          <div className="flex gap-2 sm:gap-1">
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
-              title="Attach File"
-            >
-              <Paperclip className="w-5 h-5 text-gray-400" />
-            </button>
-            <button 
-              onClick={() => document.getElementById('image-input')?.click()}
-              disabled={uploading}
-              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
-              title="Upload Image"
-            >
-              <Image className="w-5 h-5 text-gray-400" />
-            </button>
-            <button 
-              onClick={() => setShowVideoRecorder(!showVideoRecorder)}
-              disabled={uploading}
-              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
-              title="Record Video"
-            >
-              <Video className={`w-5 h-5 ${showVideoRecorder ? 'text-red-500' : 'text-gray-400'}`} />
-            </button>
-            <button 
-              onClick={() => setShowAudioRecorder(!showAudioRecorder)}
-              disabled={uploading}
-              className="p-3 sm:p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center" 
-              title="Record Audio"
-            >
-              <Mic className={`w-5 h-5 ${showAudioRecorder ? 'text-red-500' : 'text-gray-400'}`} />
-            </button>
-          </div>
+          {/* File Attachment Button */}
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0" 
+            title="Attach File"
+          >
+            <Paperclip className="w-5 h-5 text-gray-400" />
+          </button>
 
+          {/* Audio Recording Button */}
+          <button 
+            onClick={() => setShowAudioRecorder(!showAudioRecorder)}
+            disabled={uploading}
+            className={`p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0 ${
+              showAudioRecorder ? 'bg-red-600 text-white' : ''
+            }`}
+            title="Record Audio"
+          >
+            <Mic className="w-5 h-5 text-gray-400" />
+          </button>
+
+          {/* Video Recording Button */}
+          <button 
+            onClick={() => setShowVideoRecorder(!showVideoRecorder)}
+            disabled={uploading}
+            className={`p-2 hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0 ${
+              showVideoRecorder ? 'bg-red-600 text-white' : ''
+            }`}
+            title="Record Video"
+          >
+            <Video className="w-5 h-5 text-gray-400" />
+          </button>
+
+          {/* Message Input */}
           <input
             type="text"
             value={inputMessage}
@@ -868,139 +973,259 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
             }}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder="Type a message..."
-            className={`flex-1 rounded-lg px-4 py-2 focus:outline-none focus:border-primary ${
+            className={`flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary ${
               theme === 'dark' 
                 ? 'bg-slate-700 border border-slate-600 text-white placeholder-gray-400' 
                 : 'bg-white border border-gray-300 text-gray-900 placeholder-gray-500'
             }`}
           />
 
+          {/* Send Button */}
           <button
             onClick={handleSendMessage}
             disabled={!inputMessage.trim()}
-            className="bg-primary hover:bg-primary/80 text-white p-3 sm:p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="bg-primary hover:bg-primary/80 text-white p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
             title="Send"
           >
             <Send className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="*/*"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
       </div>
 
+      {/* Audio Recorder Modal */}
+      {showAudioRecorder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <AudioRecorder
+            onSendAudio={handleSendAudio}
+            onCancel={() => setShowAudioRecorder(false)}
+            mode={mode}
+            socket={socket}
+            roomId={room?.id}
+          />
+        </div>
+      )}
+
+      {/* Video Recorder Modal */}
+      {showVideoRecorder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <VideoRecorder
+            onSendVideo={handleSendVideo}
+            onCancel={() => setShowVideoRecorder(false)}
+            mode={mode}
+            socket={socket}
+            roomId={room?.id}
+          />
+        </div>
+      )}
+
+      {/* File Upload Loading Overlay */}
+      {uploading && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-40">
+          <div className="bg-slate-800 rounded-lg p-6 flex flex-col items-center gap-4 min-w-64 max-w-sm mx-4">
+            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-center">
+              <h3 className="text-white font-semibold mb-2">Uploading File...</h3>
+              <p className="text-gray-400 text-sm">Please wait while your file is being uploaded</p>
+            </div>
+            <button
+              onClick={() => {
+                setUploading(false)
+                setUploadProgress(0)
+              }}
+              className="mt-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
+            >
+              Cancel Upload
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* File Preview Modal */}
-      {previewModal && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onClick={() => setPreviewModal(null)}>
-          <div className="max-w-4xl w-full bg-slate-800 rounded-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
+      {filePreviewModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-700">
-              <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-white truncate">{previewModal.fileName}</h3>
-                <p className="text-sm text-gray-400">{previewModal.fileType}</p>
+              <div className="flex items-center gap-3">
+                <File className="w-6 h-6 text-blue-400" />
+                <div>
+                  <h3 className="text-lg font-semibold text-white">{filePreviewModal.fileName}</h3>
+                  <p className="text-sm text-gray-400">
+                    {filePreviewModal.fileSize ? `${(filePreviewModal.fileSize / 1024 / 1024).toFixed(2)} MB` : 'Unknown size'} • {filePreviewModal.mimeType || 'Unknown type'}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleDownload(previewModal.fileName, previewModal.fileUrl)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex items-center gap-2"
+                  onClick={() => handleDownloadFile(filePreviewModal)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
                 >
                   <File className="w-4 h-4" />
                   Download
                 </button>
                 <button
-                  onClick={() => setPreviewModal(null)}
+                  onClick={() => setFilePreviewModal(null)}
                   className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
                 >
-                  <X className="w-6 h-6 text-gray-400" />
+                  <X className="w-5 h-5 text-gray-400" />
                 </button>
               </div>
             </div>
 
-            {/* Content */}
-            <div className="p-4 max-h-[70vh] overflow-auto">
-              {previewModal.fileType === 'image' ? (
-                <img
-                  src={previewModal.fileUrl.startsWith('data:') ? previewModal.fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${previewModal.fileUrl}`}
-                  alt={previewModal.fileName}
-                  className="max-w-full mx-auto rounded"
-                />
-              ) : previewModal.fileType === 'video' ? (
-                <video
-                  controls
-                  src={previewModal.fileUrl.startsWith('data:') ? previewModal.fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${previewModal.fileUrl}`}
-                  className="max-w-full mx-auto rounded"
-                />
-              ) : previewModal.fileType === 'audio' ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <Mic className="w-16 h-16 text-green-400 mb-4" />
-                  <audio
-                    controls
-                    src={previewModal.fileUrl.startsWith('data:') ? previewModal.fileUrl : `${window.location.protocol}//${window.location.hostname}:5000${previewModal.fileUrl}`}
-                    className="w-full max-w-md"
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+              {filePreviewModal.mimeType && filePreviewModal.mimeType.startsWith('image/') ? (
+                <div className="text-center">
+                  <img 
+                    src={filePreviewModal.fileUrl} 
+                    alt={filePreviewModal.fileName}
+                    className="max-w-full max-h-[60vh] rounded-lg mx-auto"
                   />
                 </div>
-              ) : (
-                // All other file types - use iframe for preview
-                <div className="space-y-4">
-                  {/* Try to preview using iframe (works for PDF, TXT, and some documents) */}
-                  <iframe
-                    src={previewModal.fileUrl.startsWith('data:') 
-                      ? previewModal.fileUrl 
-                      : `${window.location.protocol}//${window.location.hostname}:5000${previewModal.fileUrl}`}
-                    className="w-full h-[500px] bg-white rounded"
-                    title={previewModal.fileName}
-                    onError={(e) => {
-                      console.log('Iframe preview failed, showing fallback');
-                      e.target.style.display = 'none';
-                    }}
-                  />
-                  
-                  {/* Fallback options if iframe fails */}
-                  <div className="flex flex-col items-center justify-center py-8 text-center bg-slate-700/50 rounded">
-                    <File className="w-12 h-12 text-blue-400 mb-3" />
-                    <p className="text-gray-300 text-sm mb-1">{previewModal.fileName}</p>
-                    <p className="text-xs text-gray-400 mb-4">
-                      {previewModal.fileType === 'document' ? 'Document' : 'File'} • 
-                      {previewModal.fileName.split('.').pop().toUpperCase()}
-                    </p>
-                    
-                    <div className="flex gap-2">
+              ) : filePreviewModal.mimeType && filePreviewModal.mimeType === 'application/pdf' ? (
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-red-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                    <File className="w-12 h-12 text-red-400" />
+                  </div>
+                  <h4 className="text-xl font-semibold text-white mb-2">PDF Document</h4>
+                  <p className="text-gray-400 mb-6">This is a PDF document. Click the download button above to save it to your device.</p>
+                  <button
+                    onClick={() => window.open(filePreviewModal.fileUrl, '_blank')}
+                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg text-sm transition-colors"
+                  >
+                    Open PDF in New Tab
+                  </button>
+                </div>
+              ) : filePreviewModal.mimeType && (filePreviewModal.mimeType.includes('document') || filePreviewModal.mimeType.includes('word')) ? (
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-blue-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                    <File className="w-12 h-12 text-blue-400" />
+                  </div>
+                  <h4 className="text-xl font-semibold text-white mb-2">Word Document</h4>
+                  <p className="text-gray-400 mb-6">This is a Microsoft Word document. Click the download button above to save it to your device.</p>
+                </div>
+              ) : filePreviewModal.mimeType && (filePreviewModal.mimeType.includes('sheet') || filePreviewModal.mimeType.includes('excel')) ? (
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-green-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                    <File className="w-12 h-12 text-green-400" />
+                  </div>
+                  <h4 className="text-xl font-semibold text-white mb-2">Excel Spreadsheet</h4>
+                  <p className="text-gray-400 mb-6">This is a Microsoft Excel spreadsheet. Click the download button above to save it to your device.</p>
+                </div>
+              ) : filePreviewModal.mimeType && filePreviewModal.mimeType.includes('presentation') ? (
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-orange-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                    <File className="w-12 h-12 text-orange-400" />
+                  </div>
+                  <h4 className="text-xl font-semibold text-white mb-2">PowerPoint Presentation</h4>
+                  <p className="text-gray-400 mb-6">This is a Microsoft PowerPoint presentation. Click the download button above to save it to your device.</p>
+                </div>
+              ) : filePreviewModal.mimeType && filePreviewModal.mimeType === 'text/plain' ? (
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-gray-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                    <File className="w-12 h-12 text-gray-400" />
+                  </div>
+                  <h4 className="text-xl font-semibold text-white mb-2">Text File</h4>
+                  <p className="text-gray-400 mb-6">This is a plain text file. Click the download button above to save it to your device.</p>
+                </div>
+              ) : (() => {
+                // Fallback detection using file extension
+                const fileName = filePreviewModal.fileName || '';
+                const fileExt = fileName.toLowerCase().split('.').pop();
+                
+                if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(fileExt)) {
+                  return (
+                    <div className="text-center">
+                      <img 
+                        src={filePreviewModal.fileUrl} 
+                        alt={filePreviewModal.fileName}
+                        className="max-w-full max-h-[60vh] rounded-lg mx-auto"
+                      />
+                    </div>
+                  );
+                } else if (fileExt === 'pdf') {
+                  return (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-red-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                        <File className="w-12 h-12 text-red-400" />
+                      </div>
+                      <h4 className="text-xl font-semibold text-white mb-2">PDF Document</h4>
+                      <p className="text-gray-400 mb-6">This is a PDF document. Click the download button above to save it to your device.</p>
                       <button
-                        onClick={() => {
-                          const fullUrl = previewModal.fileUrl.startsWith('data:') 
-                            ? previewModal.fileUrl 
-                            : `${window.location.protocol}//${window.location.hostname}:5000${previewModal.fileUrl}`;
-                          window.open(fullUrl, '_blank');
-                        }}
-                        className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg transition-colors flex items-center gap-2"
+                        onClick={() => window.open(filePreviewModal.fileUrl, '_blank')}
+                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg text-sm transition-colors"
                       >
-                        <Eye className="w-4 h-4" />
-                        Open in New Tab
-                      </button>
-                      <button
-                        onClick={() => handleDownload(previewModal.fileName, previewModal.fileUrl)}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        <File className="w-4 h-4" />
-                        Download
+                        Open PDF in New Tab
                       </button>
                     </div>
-                  </div>
-                </div>
-              )}
+                  );
+                } else if (['doc', 'docx'].includes(fileExt)) {
+                  return (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-blue-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                        <File className="w-12 h-12 text-blue-400" />
+                      </div>
+                      <h4 className="text-xl font-semibold text-white mb-2">Word Document</h4>
+                      <p className="text-gray-400 mb-6">This is a Microsoft Word document. Click the download button above to save it to your device.</p>
+                    </div>
+                  );
+                } else if (['xls', 'xlsx'].includes(fileExt)) {
+                  return (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-green-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                        <File className="w-12 h-12 text-green-400" />
+                      </div>
+                      <h4 className="text-xl font-semibold text-white mb-2">Excel Spreadsheet</h4>
+                      <p className="text-gray-400 mb-6">This is a Microsoft Excel spreadsheet. Click the download button above to save it to your device.</p>
+                    </div>
+                  );
+                } else if (['ppt', 'pptx'].includes(fileExt)) {
+                  return (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-orange-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                        <File className="w-12 h-12 text-orange-400" />
+                      </div>
+                      <h4 className="text-xl font-semibold text-white mb-2">PowerPoint Presentation</h4>
+                      <p className="text-gray-400 mb-6">This is a Microsoft PowerPoint presentation. Click the download button above to save it to your device.</p>
+                    </div>
+                  );
+                } else if (fileExt === 'txt') {
+                  return (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-gray-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                        <File className="w-12 h-12 text-gray-400" />
+                      </div>
+                      <h4 className="text-xl font-semibold text-white mb-2">Text File</h4>
+                      <p className="text-gray-400 mb-6">This is a plain text file. Click the download button above to save it to your device.</p>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-slate-500/20 rounded-lg flex items-center justify-center mx-auto mb-4">
+                        <File className="w-12 h-12 text-slate-400" />
+                      </div>
+                      <h4 className="text-xl font-semibold text-white mb-2">{fileExt ? fileExt.toUpperCase() + ' File' : 'File'}</h4>
+                      <p className="text-gray-400 mb-2">
+                        Type: {filePreviewModal.mimeType || 'Unknown file type'}
+                      </p>
+                      <p className="text-gray-400 mb-6">Click the download button above to save this file to your device.</p>
+                    </div>
+                  );
+                }
+              })()}
             </div>
           </div>
         </div>
-      )}
-
-      {/* Room Dashboard Modal */}
-      {showDashboard && mode === 'secure' && (
-        <RoomDashboard
-          room={room}
-          activeUsers={dashboardData.activeUsers}
-          leftUsers={dashboardData.leftUsers}
-          failedAttempts={dashboardData.failedAttempts}
-          currentUser={user.username}
-          onKickUser={handleKickUser}
-          onClose={() => setShowDashboard(false)}
-        />
       )}
     </div>
   )

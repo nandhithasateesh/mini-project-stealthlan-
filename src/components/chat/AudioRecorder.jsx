@@ -1,14 +1,11 @@
 import React, { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Mic, Square, Send, X, FileText } from 'lucide-react'
-import { audioToText } from '../../utils/aiHelper'
+import { Mic, Square, Send, X } from 'lucide-react'
 
 const AudioRecorder = ({ onSendAudio, onCancel, mode, socket, roomId }) => {
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState(null)
   const [recordingTime, setRecordingTime] = useState(0)
-  const [transcribing, setTranscribing] = useState(false)
-  const [transcript, setTranscript] = useState('')
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
   const timerRef = useRef(null)
@@ -48,10 +45,6 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode, socket, roomId }) => {
       mediaRecorderRef.current.start()
       setIsRecording(true)
 
-      // Notify others that recording started
-      if (socket && roomId) {
-        socket.emit('recording:start', { roomId, type: 'audio' })
-      }
 
       // Start timer
       timerRef.current = setInterval(() => {
@@ -82,50 +75,23 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode, socket, roomId }) => {
       setIsRecording(false)
       clearInterval(timerRef.current)
       
-      // Notify others that recording stopped
-      if (socket && roomId) {
-        socket.emit('recording:stop', { roomId })
-      }
     }
   }
 
   const handleSend = () => {
     if (audioBlob) {
-      onSendAudio(audioBlob, transcript)
+      onSendAudio(audioBlob)
       handleCancel()
     }
   }
 
-  const handleTranscribe = async () => {
-    if (!audioBlob) return;
-    
-    if (mode === 'secure') {
-      alert('Audio transcription is only available in Normal Mode for privacy reasons');
-      return;
-    }
-    
-    setTranscribing(true);
-    try {
-      const text = await audioToText(audioBlob);
-      setTranscript(text);
-    } catch (error) {
-      console.error('Transcription error:', error);
-      alert('Failed to transcribe audio. You can still send the audio message.');
-    } finally {
-      setTranscribing(false);
-    }
-  }
 
   const handleCancel = () => {
     if (isRecording) {
       stopRecording()
-    } else if (socket && roomId) {
-      // If not recording but closing, still notify
-      socket.emit('recording:stop', { roomId })
     }
     setAudioBlob(null)
     setRecordingTime(0)
-    setTranscript('')
     clearInterval(timerRef.current)
     onCancel()
   }
@@ -138,12 +104,21 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode, socket, roomId }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="absolute bottom-full left-0 right-0 mb-2 bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-lg"
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      className="bg-slate-800 border border-slate-700 rounded-lg p-6 shadow-xl max-w-md w-full mx-4"
+      onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center gap-4">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Mic className="w-5 h-5 text-red-500" />
+          Record Audio Message
+        </h3>
+        <p className="text-sm text-gray-400 mt-1">Record a voice message to share with the room</p>
+      </div>
+      
+      <div className="flex flex-col gap-4">
         {!isRecording && !audioBlob && (
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -157,63 +132,60 @@ const AudioRecorder = ({ onSendAudio, onCancel, mode, socket, roomId }) => {
         )}
 
         {isRecording && (
-          <>
-            <div className="flex items-center gap-2">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-4">
               <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-              <span className="text-white font-mono">{formatTime(recordingTime)}</span>
+              <span className="text-white font-mono text-lg">{formatTime(recordingTime)}</span>
             </div>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={stopRecording}
-              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-lg transition-colors mx-auto"
             >
               <Square className="w-5 h-5" />
-              Stop
+              Stop Recording
             </motion.button>
-          </>
+          </div>
         )}
 
         {audioBlob && !isRecording && (
-          <>
-            <div className="flex-1 space-y-2">
+          <div className="text-center">
+            <div className="mb-4">
               <audio controls src={URL.createObjectURL(audioBlob)} className="w-full" />
-              {transcript && (
-                <div className="bg-slate-700 p-2 rounded text-sm text-gray-300">
-                  <span className="font-semibold">Transcript:</span> {transcript}
-                </div>
-              )}
             </div>
-            {mode !== 'secure' && !transcript && (
+            <div className="flex gap-3 justify-center">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={handleTranscribe}
-                disabled={transcribing}
-                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                onClick={handleSend}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition-colors"
               >
-                <FileText className="w-5 h-5" />
-                {transcribing ? 'Transcribing...' : 'To Text'}
+                <Send className="w-5 h-5" />
+                Send Audio
               </motion.button>
-            )}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleSend}
-              className="flex items-center gap-2 bg-primary hover:bg-primary/80 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <Send className="w-5 h-5" />
-              Send
-            </motion.button>
-          </>
+              <button
+                onClick={handleCancel}
+                className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-6 py-3 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
 
-        <button
-          onClick={handleCancel}
-          className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-        >
-          <X className="w-5 h-5 text-gray-400" />
-        </button>
+        {!isRecording && !audioBlob && (
+          <div className="flex justify-end">
+            <button
+              onClick={handleCancel}
+              className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5" />
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   )

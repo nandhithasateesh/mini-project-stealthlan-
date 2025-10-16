@@ -179,7 +179,7 @@ const RoomDashboard = ({
                 </div>
                 <div className="bg-slate-600/50 p-3 rounded">
                   <p className="text-xs text-gray-400 mb-1">Room ID</p>
-                  <p className="text-white font-mono text-sm">{room.id}</p>
+                  <p className="text-white font-mono text-sm">{room.id} {isHost ? '(host)' : ''}</p>
                 </div>
                 <div className="bg-slate-600/50 p-3 rounded">
                   <p className="text-xs text-gray-400 mb-1">Time Limit</p>

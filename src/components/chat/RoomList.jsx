@@ -124,7 +124,7 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
       if (success) {
         // Show Room ID alert in secure mode
         if (mode === 'secure') {
-          alert(`✅ Room Created!\n\n🔑 Room ID: ${room.id}\n🔒 Password: ${roomPassword}\n\n⚠️ Share these with others to let them join!\n\nRoom ID is required to join in Secure Mode.`);
+          alert(`✅ Room Created!\n\n🔑 Room ID: ${room.id} (host)\n🔒 Password: ${roomPassword}\n\n⚠️ Share these with others to let them join!\n\nRoom ID is required to join in Secure Mode.`);
         }
         
         setShowCreateModal(false)
@@ -296,7 +296,7 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                     <h3 className="font-semibold text-sm">{room.name}</h3>
                     {mode === 'secure' && (
                       <p className="text-xs opacity-75 mt-1 font-mono text-purple-300">
-                        ID: {room.id}
+                        ID: {room.id} {room.createdBy === (JSON.parse(localStorage.getItem('user') || '{}')).id || room.createdBy === (JSON.parse(localStorage.getItem('user') || '{}')).username ? '(host)' : ''}
                       </p>
                     )}
                     {room.description && (

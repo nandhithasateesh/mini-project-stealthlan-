@@ -15,6 +15,21 @@ const NormalRegister = ({ onRegisterSuccess, onSwitchToLogin }) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true) // Default to true for new registrations
+
+  // Credential saving function
+  const saveCredentials = (email, password) => {
+    try {
+      const credentials = {
+        email,
+        password,
+        savedAt: new Date().toISOString()
+      }
+      localStorage.setItem('stealthlan_saved_credentials', JSON.stringify(credentials))
+    } catch (error) {
+      console.error('Failed to save credentials:', error)
+    }
+  }
 
   const handleChange = (e) => {
     setFormData({
@@ -97,6 +112,11 @@ const NormalRegister = ({ onRegisterSuccess, onSwitchToLogin }) => {
         // Save token and user data
         localStorage.setItem('authToken', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
+        
+        // Save credentials if "Remember Me" is checked
+        if (rememberMe) {
+          saveCredentials(formData.email, formData.password)
+        }
         
         setSuccess(true)
         setTimeout(() => {
@@ -264,6 +284,20 @@ const NormalRegister = ({ onRegisterSuccess, onSwitchToLogin }) => {
                   {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+            </div>
+
+            {/* Remember Me */}
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 text-primary bg-slate-700 border-slate-600 rounded focus:ring-primary focus:ring-2"
+              />
+              <label htmlFor="rememberMe" className="text-sm text-gray-300 cursor-pointer">
+                Remember my credentials for easy login
+              </label>
             </div>
 
             {/* Submit Button */}

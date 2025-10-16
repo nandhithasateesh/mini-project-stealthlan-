@@ -12,6 +12,14 @@ export default defineConfig({
     https: process.env.VITE_HTTPS === 'true' ? {
       key: fs.existsSync('./certs/key.pem') ? fs.readFileSync('./certs/key.pem') : undefined,
       cert: fs.existsSync('./certs/cert.pem') ? fs.readFileSync('./certs/cert.pem') : undefined,
-    } : false
+    } : false,
+    // Proxy API calls to backend server
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   }
 })

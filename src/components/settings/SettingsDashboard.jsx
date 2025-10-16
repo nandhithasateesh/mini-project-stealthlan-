@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Settings, X, User, Shield, MessageSquare, FolderOpen,
@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 
 const SettingsDashboard = ({ isOpen, onClose, mode, settings, onSettingsChange }) => {
-  const [activeTab, setActiveTab] = useState('profile')
+  const [activeTab, setActiveTab] = useState(mode === 'normal' ? 'profile' : 'session')
   const [showHelp, setShowHelp] = useState(false)
 
   const tabs = mode === 'normal' ? [
@@ -28,7 +28,13 @@ const SettingsDashboard = ({ isOpen, onClose, mode, settings, onSettingsChange }
     onSettingsChange({ ...settings, [key]: value })
   }
 
+  // Reset activeTab when mode changes
+  useEffect(() => {
+    setActiveTab(mode === 'normal' ? 'profile' : 'session')
+  }, [mode])
+
   if (!isOpen) return null
+
 
   return (
     <AnimatePresence>
@@ -682,6 +688,14 @@ const SettingsDashboard = ({ isOpen, onClose, mode, settings, onSettingsChange }
                       />
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Fallback content if no tab matches */}
+              {!['profile', 'security', 'chat', 'rooms', 'media', 'destruct', 'language', 'advanced', 'session'].includes(activeTab) && (
+                <div className="space-y-6">
+                  <h3 className="text-xl font-bold text-white">Settings</h3>
+                  <p className="text-gray-300">Please select a settings category from the sidebar.</p>
                 </div>
               )}
             </div>

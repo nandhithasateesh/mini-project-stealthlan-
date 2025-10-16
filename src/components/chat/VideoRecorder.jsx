@@ -103,10 +103,6 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode, socket, roomId }) => {
       mediaRecorderRef.current.start()
       setIsRecording(true)
 
-      // Notify others that recording started
-      if (socket && roomId) {
-        socket.emit('recording:start', { roomId, type: 'video' })
-      }
 
       // Start timer
       timerRef.current = setInterval(() => {
@@ -125,10 +121,6 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode, socket, roomId }) => {
       clearInterval(timerRef.current)
       stopCamera()
       
-      // Notify others that recording stopped
-      if (socket && roomId) {
-        socket.emit('recording:stop', { roomId })
-      }
     }
   }
 
@@ -142,9 +134,6 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode, socket, roomId }) => {
   const handleCancel = () => {
     if (isRecording) {
       stopRecording()
-    } else if (socket && roomId) {
-      // If not recording but closing, still notify
-      socket.emit('recording:stop', { roomId })
     }
     stopCamera()
     setVideoBlob(null)
@@ -180,12 +169,21 @@ const VideoRecorder = ({ onSendVideo, onCancel, mode, socket, roomId }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="absolute bottom-full left-0 right-0 mb-2 bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-lg"
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      className="bg-slate-800 border border-slate-700 rounded-lg p-6 shadow-xl max-w-lg w-full mx-4"
+      onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex flex-col gap-3">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Video className="w-5 h-5 text-red-500" />
+          Record Video Message
+        </h3>
+        <p className="text-sm text-gray-400 mt-1">Record a video message to share with the room</p>
+      </div>
+      
+      <div className="flex flex-col gap-4">
         {/* Video Preview */}
         <div className="relative bg-black rounded-lg overflow-hidden" style={{ maxWidth: '400px', aspectRatio: '16/9' }}>
           {!videoBlob ? (

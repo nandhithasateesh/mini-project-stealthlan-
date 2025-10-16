@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Mail, Lock, User, Shield, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Mail, Lock, User, Shield, Eye, EyeOff, AlertCircle, Trash2 } from 'lucide-react'
 import API_BASE_URL from '../../config/api'
 
 const NormalLogin = ({ onLoginSuccess, onSwitchToRegister }) => {
@@ -14,6 +14,64 @@ const NormalLogin = ({ onLoginSuccess, onSwitchToRegister }) => {
   const [loading, setLoading] = useState(false)
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false)
   const [remainingAttempts, setRemainingAttempts] = useState(null)
+  const [rememberMe, setRememberMe] = useState(false)
+  const [hasSavedCredentials, setHasSavedCredentials] = useState(false)
+
+  // Load saved credentials on component mount
+  useEffect(() => {
+    loadSavedCredentials()
+  }, [])
+
+  // Credential management functions
+  const saveCredentials = (email, password) => {
+    try {
+      const credentials = {
+        email,
+        password,
+        savedAt: new Date().toISOString()
+      }
+      localStorage.setItem('stealthlan_saved_credentials', JSON.stringify(credentials))
+      setHasSavedCredentials(true)
+    } catch (error) {
+      console.error('Failed to save credentials:', error)
+    }
+  }
+
+  const loadSavedCredentials = () => {
+    try {
+      const saved = localStorage.getItem('stealthlan_saved_credentials')
+      if (saved) {
+        const credentials = JSON.parse(saved)
+        setFormData(prev => ({
+          ...prev,
+          email: credentials.email,
+          password: credentials.password
+        }))
+        setRememberMe(true)
+        setHasSavedCredentials(true)
+      }
+    } catch (error) {
+      console.error('Failed to load saved credentials:', error)
+      clearSavedCredentials()
+    }
+  }
+
+  const clearSavedCredentials = () => {
+    try {
+      localStorage.removeItem('stealthlan_saved_credentials')
+      setHasSavedCredentials(false)
+      setRememberMe(false)
+      if (hasSavedCredentials) {
+        setFormData({
+          email: '',
+          password: '',
+          twoFactorCode: ''
+        })
+      }
+    } catch (error) {
+      console.error('Failed to clear saved credentials:', error)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -57,6 +115,14 @@ const NormalLogin = ({ onLoginSuccess, onSwitchToRegister }) => {
         setRequiresTwoFactor(true)
         setError('')
       } else if (data.success) {
+        // Save credentials if "Remember Me" is checked
+        if (rememberMe) {
+          saveCredentials(formData.email, formData.password)
+        } else if (hasSavedCredentials && !rememberMe) {
+          // Clear saved credentials if user unchecked "Remember Me"
+          clearSavedCredentials()
+        }
+        
         localStorage.setItem('authToken', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
         onLoginSuccess(data.user, data.token)
@@ -93,8 +159,22 @@ const NormalLogin = ({ onLoginSuccess, onSwitchToRegister }) => {
             <p className="text-gray-400">Normal Mode Login</p>
           </div>
 
+          {/* Saved Credentials Info */}
+          {hasSavedCredentials && !error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-green-500/20 border border-green-500 rounded-lg p-3 mb-4"
+            >
+              <p className="text-green-400 text-xs font-semibold mb-1">✅ Credentials Loaded</p>
+              <p className="text-green-300 text-xs">
+                Your saved login details have been filled in automatically.
+              </p>
+            </motion.div>
+          )}
+
           {/* New User Info */}
-          {!error && (
+          {!error && !hasSavedCredentials && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -197,6 +277,31 @@ const NormalLogin = ({ onLoginSuccess, onSwitchToRegister }) => {
                 />
               </motion.div>
             )}
+
+            {/* Remember Me and Clear Credentials */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 text-primary bg-slate-700 border-slate-600 rounded focus:ring-primary focus:ring-2"
+                />
+                <span className="text-sm text-gray-300">Remember me</span>
+              </label>
+              
+              {hasSavedCredentials && (
+                <button
+                  type="button"
+                  onClick={clearSavedCredentials}
+                  className="flex items-center space-x-1 text-xs text-red-400 hover:text-red-300 transition-colors"
+                  title="Clear saved credentials"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear saved</span>
+                </button>
+              )}
+            </div>
 
             <motion.button
               whileHover={{ scale: 1.02 }}

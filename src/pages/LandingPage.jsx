@@ -10,21 +10,38 @@ const LandingPage = () => {
   const [hoveredCard, setHoveredCard] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
-  const [settings, setSettings] = useState({
-    language: 'en',
-    theme: localStorage.getItem('theme') || 'dark'
-  })
+  const [settings, setSettings] = useState({})
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark')
 
-  // Apply theme changes to document and persist to localStorage
+  // Load settings from localStorage
   useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('theme', 'light')
+    const savedSettings = localStorage.getItem('stealthlan_settings')
+    if (savedSettings) {
+      try {
+        setSettings(JSON.parse(savedSettings))
+      } catch (error) {
+        console.error('Failed to load settings:', error)
+      }
     }
-  }, [settings.theme])
+  }, [])
+
+  // Apply theme changes
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'dark') {
+      root.classList.add('dark')
+      root.classList.remove('light')
+    } else {
+      root.classList.add('light')
+      root.classList.remove('dark')
+    }
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  const handleSettingsChange = (newSettings) => {
+    setSettings(newSettings)
+    localStorage.setItem('stealthlan_settings', JSON.stringify(newSettings))
+  }
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -49,149 +66,88 @@ const LandingPage = () => {
     }
   }
 
-  const floatingVariants = {
-    animate: {
-      y: [0, -20, 0],
-      transition: {
-        duration: 4,
-        repeat: Infinity,
-        ease: 'easeInOut'
-      }
-    }
-  }
-
-  const pulseVariants = {
-    animate: {
-      scale: [1, 1.05, 1],
-      opacity: [0.5, 0.8, 0.5],
-      transition: {
-        duration: 3,
-        repeat: Infinity,
-        ease: 'easeInOut'
-      }
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-darker dark:via-dark dark:to-slate-900 text-gray-900 dark:text-white overflow-hidden relative">
-      {/* Animated Background Elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          variants={pulseVariants}
-          animate="animate"
-          className="absolute top-20 left-10 w-72 h-72 bg-primary rounded-full filter blur-3xl"
-        />
-        <motion.div
-          variants={pulseVariants}
-          animate="animate"
-          className="absolute bottom-20 right-10 w-96 h-96 bg-secondary rounded-full filter blur-3xl"
-          style={{ animationDelay: '1.5s' }}
-        />
-        <motion.div
-          variants={pulseVariants}
-          animate="animate"
-          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-purple-600 rounded-full filter blur-3xl"
-          style={{ animationDelay: '3s' }}
-        />
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gradient-to-br from-darker via-dark to-slate-900 text-white' : 'bg-gradient-to-br from-gray-50 via-blue-50 to-gray-50 text-gray-900'}`}>
+      {/* Header */}
+      <div className="flex justify-between items-center p-4 sm:p-6">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Shield className="w-6 h-6 sm:w-8 sm:h-8 text-primary" />
+          <h1 className="text-xl sm:text-2xl font-bold">StealthLAN</h1>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-4">
+          <button
+            onClick={() => setShowHelp(true)}
+            className={`p-2 rounded-lg transition-colors ${
+              theme === 'dark' 
+                ? 'bg-slate-700 hover:bg-slate-600 text-gray-300' 
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+            }`}
+            title="Help & Documentation"
+          >
+            <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className={`p-2 rounded-lg transition-colors ${
+              theme === 'dark' 
+                ? 'bg-slate-700 hover:bg-slate-600 text-gray-300' 
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+            }`}
+            title="Settings"
+          >
+            <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+          <button
+            onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+            className={`p-2 rounded-lg transition-colors ${
+              theme === 'dark' 
+                ? 'bg-slate-700 hover:bg-slate-600 text-gray-300' 
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+            }`}
+            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400" />
+            ) : (
+              <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Network Grid Animation */}
-      <div className="absolute inset-0 opacity-10">
-        <div className="absolute inset-0" style={{
-          backgroundImage: `linear-gradient(rgba(99, 102, 241, 0.3) 1px, transparent 1px),
-                           linear-gradient(90deg, rgba(99, 102, 241, 0.3) 1px, transparent 1px)`,
-          backgroundSize: '50px 50px'
-        }} />
-      </div>
-
+      {/* Main Content */}
       <motion.div
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="relative z-10 container mx-auto px-4 py-12 min-h-screen flex flex-col items-center justify-center"
+        className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 min-h-screen flex flex-col items-center justify-center"
       >
-        {/* Header Controls - Top Right */}
-        <div className="absolute top-8 right-8 flex items-center gap-3">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setSettings(prev => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }))}
-            className="p-2 rounded-lg bg-slate-700/80 dark:bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600 dark:border-slate-600 backdrop-blur-sm"
-            title={`Switch to ${settings.theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-          >
-            {settings.theme === 'dark' ? (
-              <Sun className="w-5 h-5 text-yellow-400" />
-            ) : (
-              <Moon className="w-5 h-5 text-slate-600" />
-            )}
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowHelp(true)}
-            className="p-2 rounded-lg bg-slate-700/80 dark:bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600 dark:border-slate-600 backdrop-blur-sm"
-            title="Help & Guide"
-          >
-            <HelpCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </motion.button>
-          
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowSettings(true)}
-            className="p-2 rounded-lg bg-slate-700/80 dark:bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600 dark:border-slate-600 backdrop-blur-sm"
-            title="Settings"
-          >
-            <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          </motion.button>
-        </div>
-
-        {/* Settings Dashboard */}
-        <SettingsDashboard
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-          mode="normal"
-          settings={settings}
-          onSettingsChange={setSettings}
-        />
-
-        {/* Help Panel */}
-        <HelpPanel
-          isOpen={showHelp}
-          onClose={() => setShowHelp(false)}
-        />
-
         {/* Logo and Title Section */}
-        <motion.div variants={itemVariants} className="text-center mb-16">
-          <motion.div
-            variants={floatingVariants}
-            animate="animate"
-            className="inline-block mb-6"
-          >
+        <motion.div variants={itemVariants} className="text-center mb-8 sm:mb-16">
+          <div className="inline-block mb-4 sm:mb-6">
             <div className="relative">
-              <Shield className="w-24 h-24 text-primary mx-auto animate-glow" />
-              <Wifi className="w-12 h-12 text-secondary absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+              <Shield className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 text-primary mx-auto" />
+              <Wifi className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 text-secondary absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
             </div>
-          </motion.div>
+          </div>
 
           <motion.h1
             variants={itemVariants}
-            className="text-6xl md:text-7xl font-bold mb-4 text-gradient"
+            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent"
           >
             StealthLAN
           </motion.h1>
 
           <motion.p
             variants={itemVariants}
-            className="text-xl md:text-2xl text-gray-600 dark:text-gray-300 mb-2"
+            className="text-lg sm:text-xl md:text-2xl text-gray-600 dark:text-gray-300 mb-2"
           >
             AI-Powered Offline Chat System
           </motion.p>
 
           <motion.p
             variants={itemVariants}
-            className="text-md text-gray-500 dark:text-gray-400 max-w-2xl mx-auto"
+            className="text-sm sm:text-base text-gray-500 dark:text-gray-400 max-w-2xl mx-auto px-4"
           >
             Secure, private, and intelligent communication over your local network.
             No internet required. Your data, your control.
@@ -201,7 +157,7 @@ const LandingPage = () => {
         {/* Feature Highlights */}
         <motion.div
           variants={itemVariants}
-          className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16 max-w-4xl w-full"
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-16 max-w-4xl w-full px-4"
         >
           {[
             { icon: Zap, title: 'Lightning Fast', desc: 'Real-time messaging on LAN' },
@@ -211,11 +167,11 @@ const LandingPage = () => {
             <motion.div
               key={idx}
               whileHover={{ scale: 1.05, y: -5 }}
-              className="bg-white/80 dark:bg-slate-800/50 backdrop-blur-sm border border-gray-200 dark:border-slate-700 rounded-xl p-6 text-center shadow-lg"
+              className={`${theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-white/80 border-gray-200'} backdrop-blur-sm border rounded-xl p-4 sm:p-6 text-center shadow-lg`}
             >
-              <feature.icon className="w-12 h-12 text-primary mx-auto mb-3" />
-              <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">{feature.title}</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">{feature.desc}</p>
+              <feature.icon className="w-10 h-10 sm:w-12 sm:h-12 text-primary mx-auto mb-3" />
+              <h3 className="text-base sm:text-lg font-semibold mb-2">{feature.title}</h3>
+              <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">{feature.desc}</p>
             </motion.div>
           ))}
         </motion.div>
@@ -223,26 +179,25 @@ const LandingPage = () => {
         {/* Mode Selection Cards */}
         <motion.div
           variants={itemVariants}
-          className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl w-full"
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 max-w-5xl w-full px-4"
         >
           {/* Normal Mode Card */}
           <motion.div
-            whileHover={{ scale: 1.03 }}
+            whileHover={{ scale: 1.02 }}
             onHoverStart={() => setHoveredCard('normal')}
             onHoverEnd={() => setHoveredCard(null)}
             className="relative group cursor-pointer"
             onClick={() => navigate('/normal')}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-primary rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-xl" />
-            <div className="relative bg-white/90 dark:bg-slate-800/70 backdrop-blur-md border-2 border-gray-200 dark:border-slate-700 group-hover:border-primary rounded-2xl p-8 transition-all duration-300 shadow-xl">
+            <div className={`relative ${theme === 'dark' ? 'bg-slate-800/70 border-slate-700 group-hover:border-primary' : 'bg-white/90 border-gray-200 group-hover:border-primary'} backdrop-blur-md border-2 rounded-2xl p-6 sm:p-8 transition-all duration-300 shadow-xl`}>
               <div className="flex items-center justify-between mb-4">
-                <MessageSquare className="w-16 h-16 text-primary" />
-                <Eye className="w-8 h-8 text-gray-500 dark:text-gray-400" />
+                <MessageSquare className="w-12 h-12 sm:w-16 sm:h-16 text-primary" />
+                <Eye className="w-6 h-6 sm:w-8 sm:h-8 text-gray-500 dark:text-gray-400" />
               </div>
 
-              <h2 className="text-3xl font-bold mb-3 text-gray-900 dark:text-white">Normal Mode</h2>
+              <h2 className="text-2xl sm:text-3xl font-bold mb-3">Normal Mode</h2>
 
-              <p className="text-gray-600 dark:text-gray-300 mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-6 text-sm sm:text-base">
                 Perfect for casual conversations and office communication. All messages,
                 rooms, and preferences are stored locally in JSON format.
               </p>
@@ -255,8 +210,8 @@ const LandingPage = () => {
                   'File sharing & storage',
                   'AI chat assistance'
                 ].map((feature, idx) => (
-                  <li key={idx} className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                    <div className="w-1.5 h-1.5 bg-primary rounded-full mr-2" />
+                  <li key={idx} className="flex items-center text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                    <div className="w-1.5 h-1.5 bg-primary rounded-full mr-2 flex-shrink-0" />
                     {feature}
                   </li>
                 ))}
@@ -265,7 +220,7 @@ const LandingPage = () => {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-full bg-gradient-to-r from-primary to-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg hover:shadow-primary/50 transition-all duration-300"
+                className="w-full bg-gradient-to-r from-primary to-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg hover:shadow-primary/50 transition-all duration-300 text-sm sm:text-base"
               >
                 Enter Normal Mode
               </motion.button>
@@ -274,22 +229,21 @@ const LandingPage = () => {
 
           {/* Secure Mode Card */}
           <motion.div
-            whileHover={{ scale: 1.03 }}
+            whileHover={{ scale: 1.02 }}
             onHoverStart={() => setHoveredCard('secure')}
             onHoverEnd={() => setHoveredCard(null)}
             className="relative group cursor-pointer"
             onClick={() => navigate('/secure')}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-secondary rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-xl" />
-            <div className="relative bg-white/90 dark:bg-slate-800/70 backdrop-blur-md border-2 border-gray-200 dark:border-slate-700 group-hover:border-secondary rounded-2xl p-8 transition-all duration-300 shadow-xl">
+            <div className={`relative ${theme === 'dark' ? 'bg-slate-800/70 border-slate-700 group-hover:border-secondary' : 'bg-white/90 border-gray-200 group-hover:border-secondary'} backdrop-blur-md border-2 rounded-2xl p-6 sm:p-8 transition-all duration-300 shadow-xl`}>
               <div className="flex items-center justify-between mb-4">
-                <Shield className="w-16 h-16 text-secondary" />
-                <EyeOff className="w-8 h-8 text-gray-500 dark:text-gray-400" />
+                <Shield className="w-12 h-12 sm:w-16 sm:h-16 text-secondary" />
+                <EyeOff className="w-6 h-6 sm:w-8 sm:h-8 text-gray-500 dark:text-gray-400" />
               </div>
 
-              <h2 className="text-3xl font-bold mb-3 text-gray-900 dark:text-white">Secure Mode</h2>
+              <h2 className="text-2xl sm:text-3xl font-bold mb-3">Secure Mode</h2>
 
-              <p className="text-gray-600 dark:text-gray-300 mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-6 text-sm sm:text-base">
                 Maximum privacy for sensitive communications. Messages and files
                 vanish after viewing. Nothing is stored permanently.
               </p>
@@ -302,8 +256,8 @@ const LandingPage = () => {
                   'View-once media',
                   'Anonymous sessions'
                 ].map((feature, idx) => (
-                  <li key={idx} className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                    <div className="w-1.5 h-1.5 bg-secondary rounded-full mr-2" />
+                  <li key={idx} className="flex items-center text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                    <div className="w-1.5 h-1.5 bg-secondary rounded-full mr-2 flex-shrink-0" />
                     {feature}
                   </li>
                 ))}
@@ -312,7 +266,7 @@ const LandingPage = () => {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-full bg-gradient-to-r from-secondary to-purple-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg hover:shadow-secondary/50 transition-all duration-300"
+                className="w-full bg-gradient-to-r from-secondary to-purple-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg hover:shadow-secondary/50 transition-all duration-300 text-sm sm:text-base"
               >
                 Enter Secure Mode
               </motion.button>
@@ -323,12 +277,27 @@ const LandingPage = () => {
         {/* Footer */}
         <motion.div
           variants={itemVariants}
-          className="mt-16 text-center text-gray-500 dark:text-gray-500 text-sm"
+          className="mt-8 sm:mt-16 text-center text-gray-500 dark:text-gray-500 text-xs sm:text-sm px-4"
         >
           <p>🔒 All communication stays on your local network</p>
           <p className="mt-2">Built with React • Powered by AI • Secured by Design</p>
         </motion.div>
       </motion.div>
+
+      {/* Settings Dashboard */}
+      <SettingsDashboard
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        mode="normal"
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+      />
+
+      {/* Help Panel */}
+      <HelpPanel
+        isOpen={showHelp}
+        onClose={() => setShowHelp(false)}
+      />
     </div>
   )
 }

@@ -70,7 +70,7 @@ const SecureRoomSelection = ({ socket, onRoomJoined, theme, setTheme }) => {
       
       if (response && response.success) {
         // Show Room ID to user
-        alert(`✅ Secure Room Created!\n\n🔑 Room ID: ${createForm.roomId}\n🔒 Password: ${createForm.roomPassword}\n⏱️ Time Limit: ${createForm.timeLimit} minutes\n${createForm.burnAfterReading ? '🔥 Burn After Reading: Enabled' : ''}\n\n⚠️ IMPORTANT: Share Room ID and Password with others to let them join!`)
+        alert(`✅ Secure Room Created!\n\n🔑 Room ID: ${createForm.roomId} (host)\n🔒 Password: ${createForm.roomPassword}\n⏱️ Time Limit: ${createForm.timeLimit} minutes\n${createForm.burnAfterReading ? '🔥 Burn After Reading: Enabled' : ''}\n\n⚠️ IMPORTANT: Share Room ID and Password with others to let them join!`)
         
         // Join the room
         onRoomJoined(response.room, createForm.username)
@@ -118,7 +118,9 @@ const SecureRoomSelection = ({ socket, onRoomJoined, theme, setTheme }) => {
       if (response && response.success) {
         onRoomJoined(response.room, joinForm.username)
       } else {
-        setError(response?.error || 'Access denied. Please check your credentials.')
+        const errorMessage = response?.error || 'Access denied. Please check your credentials.'
+        console.log('[CLIENT] Join failed:', errorMessage)
+        setError(errorMessage)
       }
     })
   }

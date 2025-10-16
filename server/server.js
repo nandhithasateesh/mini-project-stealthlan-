@@ -40,9 +40,6 @@ app.use('/uploads', express.static('uploads'));
 initializeDataFiles();
 initializeRoomFiles();
 
-// Start cleanup scheduler for expired rooms and messages
-startCleanupScheduler();
-
 // Routes
 app.use('/api/auth/normal/register', registerLimiter);
 app.use('/api/auth/normal/login', authLimiter);
@@ -58,6 +55,9 @@ app.get('/api/health', (req, res) => {
 
 // Setup Socket.io handlers
 setupChatHandlers(io);
+
+// Start cleanup scheduler for expired rooms and messages (after io is ready)
+startCleanupScheduler(io);
 
 httpServer.listen(config.PORT, '0.0.0.0', () => {
   console.log(`🚀 StealthLAN server running on http://localhost:${config.PORT}`);
