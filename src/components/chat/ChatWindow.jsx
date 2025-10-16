@@ -9,7 +9,6 @@ import VideoRecorder from './VideoRecorder'
 import MessageTimer from './MessageTimer'
 import RoomDashboard from './RoomDashboard'
 import { uploadFile, formatFileSize, getFileIcon } from '../../utils/fileUpload'
-import { detectScreenshot } from '../../utils/encryption'
 
 const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
   const [messages, setMessages] = useState([])
@@ -24,7 +23,6 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
   const [selfDestructTimer, setSelfDestructTimer] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [screenBlocked, setScreenBlocked] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
   const [filePreview, setFilePreview] = useState(null)
   const [previewModal, setPreviewModal] = useState(null) // { fileUrl, fileName, fileType, mimeType }
@@ -104,12 +102,7 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
       setRecordingUsers(prev => prev.filter(u => u.userId !== userId))
     })
 
-    // Online users (global - kept for compatibility)
-    socket.on('users:online', (users) => {
-      setOnlineUsers(users)
-    })
-
-    // Room-specific online users
+    // Room-specific online users (ONLY use this in chat window, ignore global)
     socket.on('room:online-users', (users) => {
       console.log(`[ChatWindow] Room has ${users.length} users online:`, users);
       setOnlineUsers(users)
@@ -187,7 +180,6 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
       socket.off('user:stopped-typing')
       socket.off('user:recording')
       socket.off('user:stopped-recording')
-      socket.off('users:online')
       socket.off('room:online-users')
       socket.off('screenshot:alert')
       socket.off('file:download-alert')
@@ -199,33 +191,7 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
     }
   }, [socket, room])
 
-  // Screenshot detection
-  useEffect(() => {
-    if (!socket || !room || mode !== 'secure') return
-
-    const handleScreenshot = () => {
-      console.log('[Screenshot] Detected screenshot attempt!')
-      
-      // Black out screen immediately
-      setScreenBlocked(true)
-      
-      // Show alert to user
-      alert('🚫 SCREENSHOT BLOCKED!\n\nScreenshots are not allowed in secure mode.\nThis attempt has been reported to all participants.')
-      
-      // Notify server (sends message to all users in room)
-      socket.emit('screenshot:taken', { roomId: room.id })
-      
-      // Remove black screen after 3 seconds
-      setTimeout(() => {
-        setScreenBlocked(false)
-      }, 3000)
-    }
-
-    // Set up screenshot detection for secure mode only
-    const cleanup = detectScreenshot(handleScreenshot)
-
-    return cleanup
-  }, [socket, room, mode])
+  // Screenshot detection removed from secure mode
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -403,10 +369,9 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
       setUploading(true)
       setUploadProgress(0)
 
-      // Create a File object from the blob
-      const videoFile = new File([videoBlob], `video-${Date.now()}.webm`, { type: 'video/webm' })
-      
-      const result = await uploadFile(videoFile, mode)
+      // Pass the blob directly with a custom filename
+      const fileName = `video-${Date.now()}.webm`
+      const result = await uploadFile(videoBlob, mode, fileName)
       console.log('[VideoUpload] Upload successful:', result);
       
       setUploadProgress(100)
@@ -510,28 +475,13 @@ const ChatWindow = ({ socket, room, user, mode, theme = 'dark' }) => {
 
   return (
     <div className={`flex-1 flex flex-col relative ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
-      {/* Black Screen Overlay (Screenshot Protection) */}
-      {screenBlocked && (
-        <div className="absolute inset-0 bg-black z-[9999] flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-red-500 text-6xl mb-4 animate-pulse">
-              🚫
-            </div>
-            <div className="text-white text-3xl font-bold mb-2">
-              Screenshot Blocked
-            </div>
-            <div className="text-gray-400 text-lg">
-              This action has been logged and reported to all participants
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Room Header */}
       <div className="bg-slate-800 border-b border-slate-700 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white">{room.name}</h2>
+            <h2 className="text-xl font-bold text-white">
+              {room.name}
+            </h2>
             <p className="text-sm text-gray-400">
               {room.members?.length || 0} members
               {room.burnAfterReading && <span className="ml-2">🔥 Burn After Reading</span>}

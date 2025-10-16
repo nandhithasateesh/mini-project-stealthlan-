@@ -384,6 +384,9 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                     onChange={(e) => setNewRoom({ ...newRoom, password: e.target.value })}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
                     placeholder={mode === 'secure' ? 'Required for secure rooms' : 'Leave empty for no password'}
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-form-type="other"
                     required={mode === 'secure'}
                   />
                   {mode === 'secure' && (
@@ -531,6 +534,9 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                     onChange={(e) => setJoinPassword(e.target.value)}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
                     placeholder="Enter room password"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-form-type="other"
                     required
                   />
                   <p className="text-xs text-gray-400 mt-1">All rooms require a password</p>
@@ -614,6 +620,9 @@ const RoomList = ({ socket, onRoomSelect, currentRoom, mode }) => {
                     onKeyPress={(e) => e.key === 'Enter' && handlePasswordSubmit()}
                     className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-primary"
                     placeholder="Enter room password"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-form-type="other"
                     autoFocus
                   />
                 </div>

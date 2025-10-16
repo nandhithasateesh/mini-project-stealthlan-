@@ -1,6 +1,13 @@
-export const uploadFile = async (file, mode = 'normal') => {
+export const uploadFile = async (file, mode = 'normal', customFileName = null) => {
   const formData = new FormData();
-  formData.append('file', file);
+  
+  // Handle Blob with custom filename
+  if (customFileName && file instanceof Blob) {
+    formData.append('file', file, customFileName);
+  } else {
+    formData.append('file', file);
+  }
+  
   formData.append('mode', mode);
 
   try {

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Mail, Lock, User, Shield, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import API_BASE_URL from '../../config/api'
 
-const NormalLogin = ({ onLoginSuccess }) => {
+const NormalLogin = ({ onLoginSuccess, onSwitchToRegister }) => {
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
     email: '',
@@ -98,11 +98,11 @@ const NormalLogin = ({ onLoginSuccess }) => {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-green-500/20 border border-green-500 rounded-lg p-3 mb-4"
+              className="bg-blue-500/20 border border-blue-500 rounded-lg p-3 mb-4"
             >
-              <p className="text-green-400 text-xs font-semibold mb-1">🆕 New User?</p>
-              <p className="text-green-300 text-xs">
-                All new users must register with Aadhaar verification for enhanced security.
+              <p className="text-blue-400 text-xs font-semibold mb-1">🆕 New User?</p>
+              <p className="text-blue-300 text-xs">
+                Create an account with email and password to get started.
               </p>
             </motion.div>
           )}
@@ -213,16 +213,14 @@ const NormalLogin = ({ onLoginSuccess }) => {
           <div className="mt-6 text-center">
             <div className="pt-4 border-t border-slate-700">
               <p className="text-sm text-gray-400 mb-3">Don't have an account?</p>
-              <a
-                href="/register-aadhaar"
+              <button
+                onClick={() => onSwitchToRegister && onSwitchToRegister()}
+                type="button"
                 className="inline-flex items-center justify-center gap-2 w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg hover:shadow-green-600/50 transition-all duration-300"
               >
                 <Shield className="w-5 h-5" />
-                Register with Aadhaar Verification
-              </a>
-              <p className="text-xs text-gray-500 mt-3">
-                🔒 Mandatory for all new users
-              </p>
+                Create New Account
+              </button>
             </div>
           </div>
         </div>

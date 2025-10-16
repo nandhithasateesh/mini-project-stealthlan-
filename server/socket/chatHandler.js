@@ -100,6 +100,19 @@ export const setupChatHandlers = (io) => {
         // Join the room
         socket.join(room.id);
         
+        // Add creator as a member automatically
+        addMemberToRoom(room.id, username, 'secure');
+        
+        // Initialize attendance log
+        if (!room.attendanceLog) {
+          room.attendanceLog = [];
+        }
+        room.attendanceLog.push({
+          username: username,
+          action: 'joined',
+          timestamp: new Date().toISOString()
+        });
+        
         // Add system message: Room created
         const creationMessage = addMessage(room.id, {
           userId: 'system',
@@ -108,6 +121,13 @@ export const setupChatHandlers = (io) => {
           type: 'system',
           isRoomCreation: true
         }, 'secure');
+        
+        // Emit initial online users count (just the creator)
+        io.to(room.id).emit('room:online-users', [{
+          userId: username,
+          username: username,
+          socketId: socket.id
+        }]);
         
         // Start room expiry timer
         setTimeout(() => {
@@ -325,6 +345,26 @@ export const setupChatHandlers = (io) => {
         const room = createRoom(roomWithCreator, socket.mode);
         socket.join(room.id);
         
+        // Add creator as a member automatically
+        addMemberToRoom(room.id, socket.userId, socket.mode);
+        
+        // Initialize attendance log
+        if (!room.attendanceLog) {
+          room.attendanceLog = [];
+        }
+        room.attendanceLog.push({
+          username: socket.username,
+          action: 'joined',
+          timestamp: new Date().toISOString()
+        });
+        
+        // Emit initial online users count (just the creator)
+        io.to(room.id).emit('room:online-users', [{
+          userId: socket.userId,
+          username: socket.username,
+          socketId: socket.id
+        }]);
+        
         console.log(`[CREATE] Room created: ${room.name} (ID: ${room.id}, mode: ${room.mode}) by ${socket.username}`);
         
         io.emit('room:created', room);
@@ -380,6 +420,16 @@ export const setupChatHandlers = (io) => {
 
         // Check password if required
         if (room.password && room.password !== password) {
+          // Track failed attempt
+          if (!room.failedAttempts) {
+            room.failedAttempts = [];
+          }
+          room.failedAttempts.push({
+            username: socket.username,
+            reason: 'Invalid password',
+            timestamp: new Date().toISOString()
+          });
+          
           return callback({ success: false, error: 'Invalid password' });
         }
 
@@ -391,6 +441,16 @@ export const setupChatHandlers = (io) => {
 
         socket.join(roomId);
         addMemberToRoom(roomId, socket.userId, socket.mode);
+
+        // Add to attendance log
+        if (!room.attendanceLog) {
+          room.attendanceLog = [];
+        }
+        room.attendanceLog.push({
+          username: socket.username,
+          action: 'joined',
+          timestamp: new Date().toISOString()
+        });
 
         // Get messages
         const messages = getMessages(roomId, socket.mode);
@@ -475,6 +535,16 @@ export const setupChatHandlers = (io) => {
             reason: 'Left voluntarily'
           });
         }
+        
+        // Add to attendance log
+        if (!room.attendanceLog) {
+          room.attendanceLog = [];
+        }
+        room.attendanceLog.push({
+          username: socket.username,
+          action: 'left',
+          timestamp: new Date().toISOString()
+        });
         
         // Add system message for user leaving
         const leaveMessage = addMessage(roomId, {
@@ -832,6 +902,17 @@ export const setupChatHandlers = (io) => {
         // Remove user from room
         removeMemberFromRoom(roomId, userId, 'secure');
         
+        // Add to attendance log
+        if (!room.attendanceLog) {
+          room.attendanceLog = [];
+        }
+        room.attendanceLog.push({
+          username: username,
+          action: 'kicked',
+          kickedBy: socket.username,
+          timestamp: new Date().toISOString()
+        });
+        
         // Notify the kicked user
         targetSocket.emit('user:kicked', {
           reason: `You were kicked by ${socket.username}`
@@ -866,8 +947,12 @@ export const setupChatHandlers = (io) => {
         const socketsAfter = await io.in(roomId).fetchSockets();
         const activeUsers = socketsAfter.map(s => ({
           userId: s.userId,
-          username: s.username
+          username: s.username,
+          socketId: s.id
         })).filter(u => u.userId);
+        
+        // Update online users count in chat window
+        io.to(roomId).emit('room:online-users', activeUsers);
         
         io.to(roomId).emit('dashboard:update', {
           activeUsers,
@@ -935,6 +1020,108 @@ export const setupChatHandlers = (io) => {
       } catch (error) {
         console.error('Dashboard stats error:', error);
         callback({ success: false, error: 'Failed to get statistics' });
+      }
+    });
+
+    // Dashboard: Get all rooms user has joined
+    socket.on('dashboard:get-rooms', async () => {
+      try {
+        console.log(`[DASHBOARD] Getting rooms for ${socket.username}`);
+        
+        const allRooms = getRooms(socket.mode);
+        const userRooms = [];
+
+        for (const room of allRooms) {
+          // Check if user is a member
+          if (room.members && room.members.includes(socket.username)) {
+            // Get active users in room
+            const socketsInRoom = await io.in(room.id).fetchSockets();
+            const onlineUsers = socketsInRoom.map(s => ({
+              id: s.userId,
+              username: s.username
+            })).filter(u => u.id);
+
+            // Calculate remaining time
+            let expiryTime = null;
+            if (room.timeLimit && room.createdAt) {
+              const created = new Date(room.createdAt);
+              const expiry = new Date(created.getTime() + room.timeLimit * 60 * 1000);
+              expiryTime = expiry.toISOString();
+            }
+
+            // Prepare room data
+            const roomData = {
+              id: room.id,
+              name: room.name,
+              description: room.description,
+              createdBy: room.createdBy,
+              createdAt: room.createdAt,
+              expiryTime,
+              members: room.members || [],
+              onlineUsers,
+              failedAttempts: room.failedAttempts || [],
+              attendanceLog: room.attendanceLog || []
+            };
+
+            userRooms.push(roomData);
+          }
+        }
+
+        socket.emit('dashboard:rooms-data', userRooms);
+      } catch (error) {
+        console.error('Dashboard get-rooms error:', error);
+      }
+    });
+
+    // Dashboard: Rejoin room without password
+    socket.on('room:rejoin', ({ roomId }, callback) => {
+      try {
+        const room = getRoom(roomId, socket.mode);
+        
+        if (!room) {
+          return callback({ success: false, error: 'Room not found' });
+        }
+
+        // Check if user is already a member
+        if (!room.members || !room.members.includes(socket.username)) {
+          return callback({ success: false, error: 'You are not a member of this room' });
+        }
+
+        // Join the socket room
+        socket.join(roomId);
+        console.log(`[REJOIN] ${socket.username} rejoined room ${room.name}`);
+
+        // Add to attendance log
+        if (!room.attendanceLog) {
+          room.attendanceLog = [];
+        }
+        room.attendanceLog.push({
+          username: socket.username,
+          action: 'joined',
+          timestamp: new Date().toISOString()
+        });
+
+        // Notify others in room
+        socket.to(roomId).emit('user:joined', {
+          userId: socket.userId,
+          username: socket.username,
+          timestamp: new Date().toISOString()
+        });
+
+        // Update online users
+        io.in(roomId).fetchSockets().then(socketsInRoom => {
+          const onlineUsers = socketsInRoom.map(s => ({
+            userId: s.userId,
+            username: s.username,
+            socketId: s.id
+          })).filter(u => u.userId);
+          io.to(roomId).emit('room:online-users', onlineUsers);
+        });
+
+        callback({ success: true, room });
+      } catch (error) {
+        console.error('Rejoin error:', error);
+        callback({ success: false, error: 'Failed to rejoin room' });
       }
     });
 

@@ -26,14 +26,71 @@ import { deleteMessagesForUser, deleteRoom, getRooms } from '../utils/roomManage
 
 const router = express.Router();
 
-// Normal Mode - Register (DISABLED - Use Aadhaar verification instead)
+// Normal Mode - Register
 router.post('/normal/register', registerValidation, validate, async (req, res) => {
-  // Registration through this endpoint is disabled
-  // All new users must register via Aadhaar verification
-  return res.status(403).json({ 
-    error: 'Direct registration is disabled. All new users must register with Aadhaar verification.',
-    redirectTo: '/register-aadhaar'
-  });
+  try {
+    // Sanitize inputs
+    const email = sanitizeInput(req.body.email);
+    const password = req.body.password;
+    const username = sanitizeInput(req.body.username);
+
+    // Read existing users
+    const users = readUsers();
+
+    // Check if email already exists
+    const existingUser = users.find(u => u.email === email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Check if username already exists
+    const existingUsername = users.find(u => u.username === username);
+    if (existingUsername) {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+
+    // Hash password using bcrypt
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create new user
+    const newUser = {
+      id: uuidv4(),
+      email,
+      username,
+      password: hashedPassword, // Store hashed password
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+      createdAt: new Date().toISOString(),
+      lastLogin: null
+    };
+
+    // Add user to database
+    users.push(newUser);
+    writeUsers(users);
+
+    // Generate JWT token for auto-login after registration
+    const token = jwt.sign(
+      { userId: newUser.id, email: newUser.email, mode: 'normal' },
+      config.JWT_SECRET,
+      { expiresIn: config.TOKEN_EXPIRY }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Registration successful',
+      token,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        username: newUser.username,
+        twoFactorEnabled: newUser.twoFactorEnabled
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  }
 });
 
 // Normal Mode - Login
@@ -124,6 +181,10 @@ router.post('/normal/login', loginValidation, validate, async (req, res) => {
     delete loginAttempts[email];
     writeLoginAttempts(loginAttempts);
 
+    // Update last login time
+    user.lastLogin = new Date().toISOString();
+    writeUsers(users);
+
     // Generate JWT token
     const token = jwt.sign(
       { userId: user.id, email: user.email, mode: 'normal' },
@@ -138,7 +199,8 @@ router.post('/normal/login', loginValidation, validate, async (req, res) => {
         id: user.id,
         email: user.email,
         username: user.username,
-        twoFactorEnabled: user.twoFactorEnabled
+        twoFactorEnabled: user.twoFactorEnabled,
+        lastLogin: user.lastLogin
       }
     });
   } catch (error) {

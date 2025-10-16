@@ -7,7 +7,6 @@ import { apiLimiter, authLimiter, registerLimiter } from './middleware/rateLimit
 import authRoutes from './routes/auth.js';
 import uploadRoutes from './routes/upload.js';
 import aiRoutes from './routes/ai.js';
-import aadhaarRoutes from './routes/aadhaar.js';
 import { initializeDataFiles } from './utils/fileHandler.js';
 import { initializeRoomFiles } from './utils/roomManager.js';
 import { setupChatHandlers } from './socket/chatHandler.js';
@@ -51,7 +50,6 @@ app.use('/api/auth/secure/create-session', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', aiRoutes);
-app.use('/api/aadhaar', aadhaarRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -2,20 +2,20 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Moon, Sun, BarChart3 } from 'lucide-react'
 import NormalLogin from '../components/auth/NormalLogin'
+import NormalRegister from '../components/auth/NormalRegister'
 import RoomList from '../components/chat/RoomList'
 import ChatWindow from '../components/chat/ChatWindow'
-import Dashboard from '../components/dashboard/Dashboard'
-import LanguageSelector from '../components/settings/LanguageSelector'
+import RoomDashboard from '../components/dashboard/RoomDashboard'
 import { initializeSocket, disconnectSocket } from '../utils/socket'
 
 const NormalMode = () => {
   const navigate = useNavigate()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showRegister, setShowRegister] = useState(false)
   const [user, setUser] = useState(null)
   const [socket, setSocket] = useState(null)
   const [currentRoom, setCurrentRoom] = useState(null)
   const [showDashboard, setShowDashboard] = useState(false)
-  const [language, setLanguage] = useState('en')
   const [theme, setTheme] = useState('dark')
 
   // Apply theme changes
@@ -55,6 +55,15 @@ const NormalMode = () => {
     setSocket(socketInstance)
   }
 
+  const handleRegisterSuccess = (userData, token) => {
+    setIsAuthenticated(true)
+    setUser(userData)
+    
+    // Initialize socket
+    const socketInstance = initializeSocket(userData.id, userData.username, 'normal')
+    setSocket(socketInstance)
+  }
+
   const handleLogout = () => {
     localStorage.removeItem('authToken')
     localStorage.removeItem('user')
@@ -65,7 +74,20 @@ const NormalMode = () => {
   }
 
   if (!isAuthenticated) {
-    return <NormalLogin onLoginSuccess={handleLoginSuccess} />
+    if (showRegister) {
+      return (
+        <NormalRegister 
+          onRegisterSuccess={handleRegisterSuccess}
+          onSwitchToLogin={() => setShowRegister(false)}
+        />
+      )
+    }
+    return (
+      <NormalLogin 
+        onLoginSuccess={handleLoginSuccess}
+        onSwitchToRegister={() => setShowRegister(true)}
+      />
+    )
   }
 
   return (
@@ -107,7 +129,6 @@ const NormalMode = () => {
                 <Moon className="w-5 h-5 text-slate-300" />
               )}
             </button>
-            <LanguageSelector currentLanguage={language} onLanguageChange={setLanguage} />
             <button
               onClick={handleLogout}
               className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-4 py-2 rounded-lg transition-colors"
@@ -130,7 +151,7 @@ const NormalMode = () => {
           mode="normal"
         />
         {showDashboard ? (
-          <Dashboard socket={socket} user={user} />
+          <RoomDashboard socket={socket} user={user} />
         ) : (
           <ChatWindow 
             socket={socket} 

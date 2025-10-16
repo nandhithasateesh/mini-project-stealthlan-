@@ -252,6 +252,9 @@ const SecureRoomSelection = ({ socket, onRoomJoined, theme, setTheme }) => {
                 onChange={(e) => setCreateForm({ ...createForm, roomPassword: e.target.value })}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
                 placeholder="Minimum 6 characters"
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-form-type="other"
                 required
               />
             </div>
@@ -388,6 +391,9 @@ const SecureRoomSelection = ({ socket, onRoomJoined, theme, setTheme }) => {
                 onChange={(e) => setJoinForm({ ...joinForm, roomPassword: e.target.value })}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:border-green-500 transition-colors"
                 placeholder="Enter room password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-form-type="other"
                 required
               />
             </div>
